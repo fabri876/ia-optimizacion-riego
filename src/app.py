@@ -1,47 +1,316 @@
-import streamlit as st
+"""Frontend del Sistema Inteligente de Optimización de Riego.
+
+Ejecutar desde la raíz del proyecto:
+    streamlit run src/app.py
+"""
 import pandas as pd
+import streamlit as st
 
-# Configuración de la página
-st.set_page_config(page_title="IA Riego | Dashboard", page_icon="🌱", layout="wide")
+from analisis import (
+    aplicar_prediccion, evaluacion_modelo, orden_zonas, preparar_plot,
+    resumen_general, resumen_zonas,
+)
+from componentes import (
+    COLORES_DECISION, COLORES_ESTADO, cifras, fmt, grafico_consumo,
+    grafico_decisiones_zona, grafico_dispersion, grafico_dona, grafico_estados,
+    grafico_histograma, grafico_humedad_zona, grafico_serie, hero, mostrar,
+    parcela, tanque, titulo_seccion, vacio,
+)
+from datos import (
+    COL_DECISION, COL_HAMB, COL_HSUELO, COL_TEMP, FEATURES, asignar_zonas,
+    columnas_faltantes, etiqueta_dataset, info_desde_nombre, leer_archivo,
+    limpiar, listar_datasets,
+)
+from estilos import inyectar_estilos
 
-# Título y encabezado
-st.title("🌱 Sistema Inteligente de Optimización de Riego")
-st.markdown("""
-Esta plataforma utiliza Inteligencia Artificial (Aprendizaje Supervisado) para analizar 
-las condiciones ambientales y del suelo, clasificando si un cultivo requiere riego o no, 
-con el objetivo de optimizar el recurso hídrico.
-""")
-st.divider()
+st.set_page_config(
+    page_title="Riego inteligente",
+    page_icon="💧",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+inyectar_estilos()
 
-# Crear dos columnas (Layout)
-col1, col2 = st.columns([1, 2])
 
-with col1:
-    st.header("1. Cargar Datos")
-    st.write("Sube el archivo Excel con las lecturas actuales de los sensores del invernadero.")
-    archivo_cargado = st.file_uploader("Seleccionar archivo Excel (.xlsx)", type=["xlsx"])
+# ------------------------------------------------------------ Predicción
+def ejecutar_prediccion(X):
+    """Usa predict.predecir(df) si existe; si no, cae al simulador de reglas."""
+    try:
+        from predict import predecir
 
-with col2:
-    st.header("2. Análisis y Clasificación")
-    if archivo_cargado is not None:
-        try:
-            # Leer el archivo cargado
-            df_actual = pd.read_excel(archivo_cargado)
-            
-            st.success("¡Archivo cargado correctamente!")
-            st.write("Vista previa de los datos de entrada:")
-            st.dataframe(df_actual.head()) # Muestra las primeras filas
-            
-            st.write("---")
-            st.subheader("Ejecutar Modelo de Inteligencia Artificial")
-            if st.button("Analizar Datos y Predecir Riego", type="primary"):
-                with st.spinner('El modelo está procesando los datos...'):
-                    # Aquí irá la conexión con predict.py más adelante
-                    st.info("Simulación: El modelo clasificó 50 registros.")
-                    st.warning("⚠️ **Resultado:** Se requiere riego en 12 zonas (Estado Crítico). 38 zonas en Estado Óptimo.")
-                    st.success("💧 **Optimización:** Al no regar las 38 zonas óptimas, has ahorrado un 76% de agua hoy.")
-                    
-        except Exception as e:
-            st.error(f"Error al leer el archivo: {e}")
-    else:
-        st.info("Esperando datos... Por favor, carga un archivo en el panel izquierdo.")
+        pred = predecir(X.copy())
+        columnas_ok = isinstance(pred, pd.DataFrame) and {"Estado_hidrico", "Decision"} <= set(pred.columns)
+        if not columnas_ok or len(pred) != len(X):
+            raise ValueError("predecir(df) debe devolver un DataFrame con Estado_hidrico y Decision")
+        return pred, "Modelo IA", None
+    except Exception as e:
+        from simulador import predecir as simular
+
+        return simular(X.copy()), "Modo simulado", f"{type(e).__name__}: {e}"
+
+
+# ------------------------------------------------------------ Barra lateral
+def barra_lateral():
+    with st.sidebar:
+        st.markdown(
+            '<div class="marca"><div class="marca-nombre">Riego inteligente</div>'
+            '<div class="marca-sub">Decide dónde regar y cuánta agua ahorrar</div></div>',
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("**Datos de entrada**")
+        archivos = listar_datasets()
+        opciones = ["Datasets del proyecto", "Subir archivo"] if archivos else ["Subir archivo"]
+        origen = st.radio("Origen", opciones, label_visibility="collapsed")
+
+        contenido, nombre = None, None
+        if origen == "Datasets del proyecto":
+            elegido = st.selectbox("Dataset", archivos, format_func=lambda p: etiqueta_dataset(p.name))
+            contenido, nombre = elegido.read_bytes(), elegido.name
+        else:
+            subido = st.file_uploader("Archivo .xlsx o .csv", type=["xlsx", "csv"])
+            if subido is not None:
+                contenido, nombre = subido.getvalue(), subido.name
+
+        st.markdown("**Parámetros**")
+        n_zonas = st.slider("Zonas de cultivo", 2, 8, 4, help="Si el archivo ya trae una columna Zona, se usa esa.")
+        litros = st.number_input("Agua por riego (litros)", min_value=1.0, value=50.0, step=5.0,
+                                 help="Litros que se gastan cada vez que se riega en una lectura.")
+        costo = st.number_input("Costo del agua (Bs por m³)", min_value=0.0, value=5.0, step=0.5)
+    return contenido, nombre, n_zonas, litros, costo
+
+
+# ------------------------------------------------------------ Pestañas
+def tab_resumen(df, res, plot, es_tiempo, general, modo):
+    prom_t, prom_a, prom_s = df[COL_TEMP].mean(), df[COL_HAMB].mean(), df[COL_HSUELO].mean()
+
+    if res is None:
+        cifras([
+            ("Lecturas cargadas", fmt(len(df)), "filas con datos completos"),
+            ("Temperatura promedio", f"{fmt(prom_t, 1)} °C", f"entre {fmt(df[COL_TEMP].min(), 1)} y {fmt(df[COL_TEMP].max(), 1)} °C"),
+            ("Humedad del aire", f"{fmt(prom_a, 0)} %", "promedio de las lecturas"),
+            ("Humedad del suelo", f"{fmt(prom_s, 1)} %", "promedio de las lecturas", "agua"),
+        ])
+        titulo_seccion("Cómo se comporta el suelo", "Humedad del suelo lectura por lectura. Al analizar, cada punto se colorea según la decisión.")
+        mostrar(grafico_serie(plot, es_tiempo, False))
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            mostrar(grafico_histograma(plot, "Temperatura", "Temperatura (°C)", "#E39A1B"))
+        with c2:
+            mostrar(grafico_histograma(plot, "Hum_ambiente", "Humedad del aire (%)", "#9DB8A6"))
+        with c3:
+            mostrar(grafico_histograma(plot, "Hum_suelo", "Humedad del suelo (%)", "#1B73C9"))
+        return
+
+    cifras([
+        ("Lecturas analizadas", fmt(general["lecturas"]), f"{fmt(general['regar'])} piden riego"),
+        ("Zonas que piden riego", f"{general['zonas_riego']} de {general['zonas_total']}",
+         "prioridad alta o media", "alerta" if general["zonas_riego"] else "hoja"),
+        ("Agua ahorrada", f"{fmt(general['ahorro'])} L", f"{fmt(general['pct_ahorro'], 1)} % menos que regar siempre", "agua"),
+        ("Lecturas con riego", f"{fmt(general['pct_regar'], 0)} %", f"{fmt(general['regar'])} de {fmt(general['lecturas'])}"),
+    ])
+
+    titulo_seccion("Decisión en cada lectura", "Cada punto es una lectura. Los azules son los momentos en que conviene regar.")
+    mostrar(grafico_serie(plot, es_tiempo, True))
+
+    conteo_dec = plot["Decision"].value_counts().rename_axis("Decision").reset_index(name="n")
+    conteo_est = plot["Estado"].value_counts().rename_axis("Estado").reset_index(name="n")
+    c1, c2 = st.columns(2)
+    with c1:
+        titulo_seccion("Regar o no regar")
+        mostrar(grafico_dona(conteo_dec, "Decision", COLORES_DECISION, "Decisión"))
+    with c2:
+        titulo_seccion("Estado hídrico del cultivo")
+        mostrar(grafico_estados(conteo_est))
+
+    titulo_seccion("Temperatura frente a humedad del suelo", "Los puntos azules concentrados abajo muestran que el riego se activa con suelo seco, sobre todo si hace calor.")
+    mostrar(grafico_dispersion(plot))
+
+    titulo_seccion("Condiciones promedio")
+    cifras([
+        ("Temperatura", f"{fmt(prom_t, 1)} °C", "promedio de las lecturas"),
+        ("Humedad del aire", f"{fmt(prom_a, 0)} %", "promedio de las lecturas"),
+        ("Humedad del suelo", f"{fmt(prom_s, 1)} %", "promedio de las lecturas", "agua"),
+    ])
+
+
+def tab_zonas(res, plot, zonas):
+    if res is None:
+        vacio("Aún no hay predicciones por zona",
+              "Pulsa «Analizar y predecir riego» para ver qué zonas necesitan agua y con qué prioridad.")
+        return
+    titulo_seccion("Estado de cada zona",
+                   "El tubo muestra cuánta humedad tiene el suelo. La prioridad sale del porcentaje de lecturas que piden riego.")
+    registros = zonas.to_dict("records")
+    for i in range(0, len(registros), 3):
+        cols = st.columns(3)
+        for col, z in zip(cols, registros[i:i + 3]):
+            with col:
+                st.markdown(parcela(z), unsafe_allow_html=True)
+
+    orden = orden_zonas(res)
+    c1, c2 = st.columns(2)
+    with c1:
+        titulo_seccion("Decisiones por zona")
+        mostrar(grafico_decisiones_zona(plot, orden))
+    with c2:
+        titulo_seccion("Humedad del suelo por zona")
+        mostrar(grafico_humedad_zona(zonas, orden))
+
+
+def tab_ahorro(res, zonas, general, litros, costo):
+    if res is None:
+        vacio("Aún no hay cálculo de ahorro",
+              "Pulsa «Analizar y predecir riego» para comparar el riego tradicional con el optimizado.")
+        return
+    tanque(general["agua_optimizada"], general["ahorro"], general["pct_ahorro"])
+
+    st.write("")
+    cifras([
+        ("Riego tradicional", f"{fmt(general['agua_tradicional'])} L", "regando en todas las lecturas"),
+        ("Riego optimizado", f"{fmt(general['agua_optimizada'])} L", "regando solo cuando el modelo lo indica", "agua"),
+        ("Agua ahorrada", f"{fmt(general['ahorro'] / 1000, 2)} m³", f"{fmt(general['pct_ahorro'], 1)} % del consumo", "hoja"),
+        ("Ahorro en costo", f"Bs {fmt(general['costo_ahorro'], 2)}", f"a Bs {fmt(costo, 2)} por m³"),
+    ])
+
+    orden = orden_zonas(res)
+    largo = pd.concat([
+        pd.DataFrame({"Zona": zonas["Zona"], "Tipo": "Riego tradicional", "Litros": zonas["Agua_tradicional"]}),
+        pd.DataFrame({"Zona": zonas["Zona"], "Tipo": "Riego optimizado", "Litros": zonas["Agua_optimizada"]}),
+    ])
+    titulo_seccion("Consumo de agua por zona",
+                   f"Se compara con regar en todas las lecturas, a {fmt(litros)} L por riego.")
+    mostrar(grafico_consumo(largo, orden))
+
+    titulo_seccion("Plan de riego recomendado", "Las zonas con más lecturas en riego van primero.")
+    plan = zonas.sort_values("Pct_regar", ascending=False)[
+        ["Prioridad", "Zona", "Accion", "Pct_regar", "Agua_optimizada", "Recomendacion"]
+    ].rename(columns={
+        "Accion": "Acción", "Pct_regar": "Lecturas a regar",
+        "Agua_optimizada": "Agua sugerida (L)", "Recomendacion": "Recomendación",
+    })
+    st.dataframe(
+        plan, hide_index=True, width="stretch",
+        column_config={
+            "Lecturas a regar": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%d%%"),
+            "Agua sugerida (L)": st.column_config.NumberColumn(format="%d"),
+            "Recomendación": st.column_config.TextColumn(width="large"),
+        },
+    )
+
+
+def tab_datos(df, res, modo):
+    if res is None:
+        titulo_seccion("Datos cargados", "Vista previa del archivo. Las columnas de predicción aparecen después de analizar.")
+        st.dataframe(df, width="stretch", hide_index=True)
+        return
+
+    titulo_seccion("Resultados lectura por lectura")
+    f1, f2 = st.columns(2)
+    zonas_sel = f1.multiselect("Zonas", orden_zonas(res), default=orden_zonas(res))
+    dec_sel = f2.multiselect("Decisión", ["Regar", "No Regar"], default=["Regar", "No Regar"])
+    vista = res[res["Zona"].isin(zonas_sel) & res["Pred_Decision"].isin(dec_sel)]
+    st.dataframe(vista, width="stretch", hide_index=True)
+    st.download_button(
+        "Descargar resultados (CSV)",
+        data=res.to_csv(index=False).encode("utf-8-sig"),
+        file_name="resultados_riego.csv",
+        mime="text/csv",
+    )
+
+    if modo == "Modelo IA":
+        ev = evaluacion_modelo(res)
+        if ev is not None:
+            acierto, tabla = ev
+            titulo_seccion("Qué tan bien acierta el modelo",
+                           f"Comparación con la columna {COL_DECISION} del dataset.")
+            cifras([("Coincidencia con la etiqueta real", f"{fmt(acierto, 1)} %", "sobre todas las lecturas", "hoja")])
+            st.dataframe(tabla, width="stretch")
+
+
+# ------------------------------------------------------------ Flujo principal
+contenido, nombre, n_zonas, litros, costo = barra_lateral()
+
+if contenido is None:
+    hero("Riego inteligente", "Carga un archivo con lecturas de temperatura, humedad del aire y humedad del suelo.", [], "Sin datos")
+    vacio("Falta el archivo de datos",
+          "Sube un .xlsx o .csv desde la barra lateral, o elige uno de los datasets del proyecto.")
+    st.stop()
+
+try:
+    crudo = leer_archivo(contenido, nombre)
+except Exception as e:
+    st.error(f"No pude leer «{nombre}». Revisa que sea un .xlsx o .csv válido. Detalle: {e}")
+    st.stop()
+
+faltan = columnas_faltantes(crudo)
+if faltan:
+    st.error(
+        f"Al archivo le faltan las columnas: {', '.join(faltan)}. "
+        f"Columnas encontradas: {', '.join(map(str, crudo.columns))}."
+    )
+    st.stop()
+
+df, descartadas = limpiar(crudo)
+if df.empty:
+    st.error("Después de limpiar no quedaron lecturas válidas. Revisa que las columnas sean numéricas.")
+    st.stop()
+if descartadas:
+    st.warning(f"Se descartaron {descartadas} filas con datos vacíos o no numéricos.")
+
+df, n_zonas_real = asignar_zonas(df, n_zonas)
+info = info_desde_nombre(nombre)
+clave = f"{nombre}|{n_zonas_real}|{len(df)}"
+
+resultado = st.session_state.get("resultado")
+if resultado is not None and resultado["clave"] != clave:
+    resultado = None
+
+modo = resultado["modo"] if resultado else "Sin analizar"
+titulo = f"{info['cultivo']} en {info['localidad']}" if info["cultivo"] else info["titulo"]
+detalle_suelo = f"Suelo {info['suelo'].lower()}. " if info["suelo"] else ""
+hero(
+    titulo,
+    f"{detalle_suelo}{fmt(len(df))} lecturas de temperatura, humedad del aire y humedad del suelo, "
+    f"repartidas en {n_zonas_real} zonas.",
+    [f"{fmt(len(df))} lecturas", f"{n_zonas_real} zonas"],
+    modo,
+)
+
+col_texto, col_boton = st.columns([3, 1.3], vertical_alignment="center")
+with col_texto:
+    st.markdown(
+        "Cada lectura se clasifica como **Regar** o **No Regar** según la temperatura, "
+        "la humedad del aire y la humedad del suelo."
+    )
+with col_boton:
+    analizar = st.button("Analizar y predecir riego", type="primary", width="stretch", key="btn_analizar")
+
+if analizar:
+    with st.spinner("Analizando las condiciones de cada zona..."):
+        pred, modo_pred, motivo = ejecutar_prediccion(df[FEATURES])
+        res_nuevo = aplicar_prediccion(df, pred)
+    st.session_state["resultado"] = {"clave": clave, "res": res_nuevo, "modo": modo_pred, "motivo": motivo}
+    st.toast("Análisis completado")
+    st.rerun()
+
+if resultado and resultado["modo"] == "Modo simulado":
+    st.caption(
+        "El modelo entrenado todavía no está conectado, así que estas predicciones usan reglas de ejemplo. "
+        f"Motivo técnico: {resultado['motivo']}"
+    )
+
+res = resultado["res"] if resultado else None
+plot, es_tiempo = preparar_plot(res if res is not None else df)
+zonas = resumen_zonas(res, litros) if res is not None else None
+general = resumen_general(res, zonas, litros, costo) if res is not None else None
+
+t1, t2, t3, t4 = st.tabs(["Resumen", "Zonas", "Ahorro de agua", "Datos"])
+with t1:
+    tab_resumen(df, res, plot, es_tiempo, general, modo)
+with t2:
+    tab_zonas(res, plot, zonas)
+with t3:
+    tab_ahorro(res, zonas, general, litros, costo)
+with t4:
+    tab_datos(df, res, modo)
