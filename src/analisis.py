@@ -8,6 +8,10 @@ import pandas as pd
 from datos import COL_DECISION, COL_HAMB, COL_HSUELO, COL_TEMP
 from optimizacion import HORARIO_TRADICIONAL, HORAS_ENTRE_RIEGOS, comparar
 
+MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+         "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+
 _ESTADOS = {
     "optimo": "Óptimo", "óptimo": "Óptimo",
     "critico": "Crítico", "crítico": "Crítico",
@@ -53,6 +57,16 @@ def columna_tiempo(df):
             if t.notna().mean() > 0.8:
                 return c
     return None
+
+
+def serie_tiempo(df):
+    """Fecha y hora de cada lectura como serie de datetime (None si el archivo no trae fecha)."""
+    tcol = columna_tiempo(df)
+    if tcol is None:
+        return None
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return pd.to_datetime(df[tcol], errors="coerce")
 
 
 def preparar_plot(df):
@@ -153,3 +167,123 @@ def evaluacion_modelo(res):
     acierto = (real == res["Pred_Decision"]).mean() * 100
     tabla = pd.crosstab(real.rename("Real"), res["Pred_Decision"].rename("Predicho"))
     return acierto, tabla
+
+
+# ------------------------------------------------------------------
+# Funciones nuevas para el panel "Qué pasó (historial)"
+# ------------------------------------------------------------------
+def fecha_corta(d):
+    return f"{d.day} {MESES_CORTOS[d.month - 1]} {d.year}"
+
+
+def periodo(res):
+    """(inicio, fin, días) del archivo, o None si no trae fecha."""
+    t = serie_tiempo(res)
+    if t is None:
+        return None
+    t = t.dropna()
+    if t.empty:
+        return None
+    ini, fin = t.min(), t.max()
+    return ini, fin, (fin.normalize() - ini.normalize()).days + 1
+
+
+def intervalo_lecturas(res):
+    """Horas típicas entre dos lecturas seguidas (mediana), calculada en la zona con más datos."""
+    t = serie_tiempo(res)
+    if t is None:
+        return None
+    zona = res["Zona"].value_counts().idxmax()
+    tz = t[res["Zona"] == zona].dropna().sort_values()
+    if len(tz) < 2:
+        return None
+    return tz.diff().median().total_seconds() / 3600
+
+
+def lecturas_por_mes(res):
+    """Lecturas por mes y decisión del modelo; la suma de los meses debe dar el total."""
+    t = serie_tiempo(res)
+    if t is None:
+        return None
+    ok = t.notna()
+    d = pd.DataFrame({"Mes": t[ok].dt.to_period("M").astype(str), "Decision": res.loc[ok, "Pred_Decision"]})
+    tabla = d.groupby(["Mes", "Decision"]).size().unstack(fill_value=0)
+    for c in ("Regar", "No Regar"):
+        if c not in tabla.columns:
+            tabla[c] = 0
+    tabla["Total"] = tabla["Regar"] + tabla["No Regar"]
+    tabla = tabla.reset_index().sort_values("Mes")
+
+    def etiqueta(s):
+        anio, mes = (int(x) for x in s.split("-"))
+        return f"{MESES_CORTOS[mes - 1]} {anio}"
+
+    tabla["Etiqueta"] = tabla["Mes"].map(etiqueta)
+    return tabla[["Mes", "Etiqueta", "Regar", "No Regar", "Total"]]
+
+
+_SIGNIFICADO_ESTADO = {
+    "Óptimo": "La humedad del suelo está en el rango que el cultivo necesita.",
+    "Crítico": "El suelo está demasiado seco para el cultivo.",
+    "Saturado": "El suelo tiene exceso de agua.",
+}
+
+
+def tabla_estados(res):
+    """Una fila por estado hídrico con números reales del dataset."""
+    orden = ["Óptimo", "Crítico", "Saturado"]
+    otros = [e for e in res["Pred_Estado"].unique() if e not in orden]
+    filas = []
+    for est in orden + sorted(otros):
+        g = res[res["Pred_Estado"] == est]
+        if g.empty:
+            continue
+        filas.append({
+            "Estado": est,
+            "Significado": _SIGNIFICADO_ESTADO.get(est, ""),
+            "Lecturas": len(g),
+            "Pct": len(g) / len(res) * 100,
+            "Hum_suelo": g[COL_HSUELO].mean(),
+            "Pct_regar": (g["Pred_Decision"] == "Regar").mean() * 100,
+        })
+    return filas
+
+
+def regar_por_rango(res, col, ancho, minimo=15):
+    """Porcentaje de lecturas donde el modelo indica regar, por tramos de una variable."""
+    x = res[col]
+    ini = np.floor(x.min() / ancho) * ancho
+    fin = np.ceil(x.max() / ancho) * ancho
+    if fin <= ini:
+        fin = ini + ancho
+    bordes = np.arange(ini, fin + ancho, ancho)
+    cat = pd.cut(x, bins=bordes, right=False)
+    d = pd.DataFrame({"r": cat, "regar": (res["Pred_Decision"] == "Regar")})
+    g = d.groupby("r", observed=True).agg(Lecturas=("regar", "size"), Pct_regar=("regar", "mean")).reset_index()
+    g["Pct_regar"] = g["Pct_regar"] * 100
+    g["Inicio"] = g["r"].apply(lambda i: float(i.left))
+    g["Rango"] = g["Inicio"].apply(lambda a: f"{a:.0f}–{a + ancho:.0f}")
+    g = g[g["Lecturas"] >= minimo].sort_values("Inicio")
+    return g[["Rango", "Inicio", "Lecturas", "Pct_regar"]].reset_index(drop=True)
+
+
+def umbral_aproximado(tabla):
+    """Humedad del suelo a partir de la cual el modelo deja de indicar riego (aproximada, por tramos)."""
+    if tabla.empty:
+        return None
+    alto = tabla[tabla["Pct_regar"] >= 50]
+    if alto.empty:
+        return None
+    ultimo_alto = alto["Inicio"].max()
+    despues = tabla[(tabla["Pct_regar"] < 50) & (tabla["Inicio"] > ultimo_alto)]
+    if despues.empty:
+        return None
+    return float(despues["Inicio"].min())
+
+
+def contexto_humedad(res, hs, margen=5, minimo=20):
+    """Qué hizo el modelo en el historial con humedades de suelo parecidas a hs."""
+    sel = res[(res[COL_HSUELO] >= hs - margen) & (res[COL_HSUELO] <= hs + margen)]
+    if len(sel) < minimo:
+        return None
+    return len(sel), float((sel["Pred_Decision"] == "Regar").mean() * 100)
