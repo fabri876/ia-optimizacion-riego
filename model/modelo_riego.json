@@ -1,0 +1,67 @@
+{
+  "umbral": 0.22000000000000003,
+  "features": [
+    "temperatura",
+    "humedad_ambiente",
+    "humedad_suelo",
+    "humedad_suelo_media24",
+    "hora_sen",
+    "hora_cos",
+    "dia_semana",
+    "mes",
+    "indice_dpv",
+    "cultivo_cod"
+  ],
+  "nombre_modelo": "Random Forest",
+  "metricas_validacion": {
+    "Árbol de Decisión": {
+      "exactitud": 0.8938529784537389,
+      "precision": 0.7341628959276018,
+      "exhaustividad": 0.8664886515353805,
+      "f1": 0.7948560930802204
+    },
+    "Random Forest": {
+      "exactitud": 0.9192015209125475,
+      "precision": 0.8126582278481013,
+      "exhaustividad": 0.8571428571428571,
+      "f1": 0.834307992202729
+    },
+    "Regresión Logística": {
+      "exactitud": 0.6600126742712294,
+      "precision": 0.3803545051698671,
+      "exhaustividad": 0.6875834445927904,
+      "f1": 0.4897765097479791
+    },
+    "Perceptrón Multicapa": {
+      "exactitud": 0.9198352344740177,
+      "precision": 0.8415977961432507,
+      "exhaustividad": 0.8157543391188251,
+      "f1": 0.8284745762711865
+    }
+  },
+  "metricas_prueba": {
+    "exactitud": 0.8733145186578865,
+    "precision": 0.6552036199095023,
+    "exhaustividad": 0.9692101740294511,
+    "f1": 0.7818574514038877
+  },
+  "matriz_confusion": [
+    [
+      2061,
+      381
+    ],
+    [
+      23,
+      724
+    ]
+  ],
+  "exactitud_estado": 0.9225462527438069,
+  "limpieza": {
+    "filas_iniciales": 21936,
+    "nulos": 1116,
+    "fuera_de_rango": 0,
+    "duplicados": 0,
+    "etiqueta_invalida": 0,
+    "filas_finales": 20820
+  }
+}
