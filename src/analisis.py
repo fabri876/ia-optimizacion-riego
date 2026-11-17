@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from datos import COL_DECISION, COL_HAMB, COL_HSUELO, COL_TEMP
+from optimizacion import HORARIO_TRADICIONAL, HORAS_ENTRE_RIEGOS, comparar
 
 _ESTADOS = {
     "optimo": "Óptimo", "óptimo": "Óptimo",
@@ -85,7 +86,11 @@ def recomendacion(z):
     return "La humedad es adecuada. Mantener sin riego."
 
 
-def resumen_zonas(res, litros):
+def resumen_zonas(res, litros, horario=HORARIO_TRADICIONAL, horas_entre=HORAS_ENTRE_RIEGOS):
+    """Resumen por zona. El agua se compara contra el cronograma tradicional
+    (riego a horas fijas) y las horas críticas se agrupan en eventos de riego;
+    ver optimizacion.py."""
+    tcol = columna_tiempo(res)
     filas = []
     for zona in orden_zonas(res):
         g = res[res["Zona"] == zona]
@@ -94,7 +99,8 @@ def resumen_zonas(res, litros):
         pct = regar / n * 100
         prioridad = "Alta" if pct >= 60 else ("Media" if pct >= 30 else "Baja")
         accion = {"Alta": "Regar ahora", "Media": "Programar riego", "Baja": "No regar"}[prioridad]
-        trad, opt = n * litros, regar * litros
+        comp = comparar(g, g["Pred_Decision"] == "Regar", litros, tcol, horario, horas_entre)
+        trad, opt = comp["agua_tradicional"], comp["agua_optimizada"]
         fila = {
             "Zona": zona,
             "Lecturas": n,
@@ -106,6 +112,8 @@ def resumen_zonas(res, litros):
             "Estado": g["Pred_Estado"].mode().iloc[0],
             "Prioridad": prioridad,
             "Accion": accion,
+            "Riegos_tradicional": comp["riegos_tradicional"],
+            "Riegos_IA": comp["riegos_ia"],
             "Agua_tradicional": trad,
             "Agua_optimizada": opt,
             "Ahorro": trad - opt,
@@ -118,11 +126,14 @@ def resumen_zonas(res, litros):
 def resumen_general(res, zonas, litros, costo_m3):
     n = len(res)
     regar = int((res["Pred_Decision"] == "Regar").sum())
-    trad, opt = n * litros, regar * litros
+    # Se suman las zonas: cada una consolida sus propios eventos de riego.
+    trad, opt = float(zonas["Agua_tradicional"].sum()), float(zonas["Agua_optimizada"].sum())
     ahorro = trad - opt
     return {
         "lecturas": n,
         "regar": regar,
+        "riegos_tradicional": int(zonas["Riegos_tradicional"].sum()),
+        "riegos_ia": int(zonas["Riegos_IA"].sum()),
         "pct_regar": regar / n * 100 if n else 0,
         "agua_tradicional": trad,
         "agua_optimizada": opt,

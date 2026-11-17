@@ -33,12 +33,16 @@ inyectar_estilos()
 
 
 # ------------------------------------------------------------ Predicción
-def ejecutar_prediccion(X):
-    """Usa predict.predecir(df) si existe; si no, cae al simulador de reglas."""
+def ejecutar_prediccion(X, cultivo=None):
+    """Usa predict.predecir(df) si existe; si no, cae al simulador de reglas.
+
+    X lleva todas las columnas del archivo: el modelo aprovecha Fecha_Hora y
+    Cultivo además de las tres variables de entrada.
+    """
     try:
         from predict import predecir
 
-        pred = predecir(X.copy())
+        pred = predecir(X.copy(), cultivo=cultivo)
         columnas_ok = isinstance(pred, pd.DataFrame) and {"Estado_hidrico", "Decision"} <= set(pred.columns)
         if not columnas_ok or len(pred) != len(X):
             raise ValueError("predecir(df) debe devolver un DataFrame con Estado_hidrico y Decision")
@@ -46,7 +50,31 @@ def ejecutar_prediccion(X):
     except Exception as e:
         from simulador import predecir as simular
 
-        return simular(X.copy()), "Modo simulado", f"{type(e).__name__}: {e}"
+        return simular(X[FEATURES].copy()), "Modo simulado", f"{type(e).__name__}: {e}"
+
+
+# ------------------------------------------------------------ Consulta puntual
+def consulta_rapida():
+    """Condición actual ingresada a mano (la consigna pide este modo además de la carga de archivo)."""
+    with st.sidebar.expander("Consulta rápida: condición actual"):
+        with st.form("consulta"):
+            t = st.number_input("Temperatura (°C)", -10.0, 60.0, 28.0, 0.5)
+            ha = st.number_input("Humedad del aire (%)", 0.0, 100.0, 45.0, 1.0)
+            hs = st.number_input("Humedad del suelo (%)", 0.0, 100.0, 29.0, 0.5)
+            hora = st.slider("Hora del día", 0, 23, 14)
+            cultivo = st.selectbox("Cultivo", ["Tomate", "Pimentón", "Lechuga", "Frutilla", "Pepino"])
+            enviar = st.form_submit_button("Clasificar", width="stretch")
+        if enviar:
+            try:
+                from predict import predecir_condicion
+
+                r = predecir_condicion(t, ha, hs, hora=hora, cultivo=cultivo)
+                (st.error if r["decision"] == "Regar" else st.success)(
+                    f"**{r['decision']}** · estado {r['estado'].lower()}")
+                st.caption(f"Probabilidad de necesitar riego: {r['probabilidad']:.0%} "
+                           f"(se riega desde {r['umbral']:.0%}).")
+            except Exception as e:
+                st.warning(f"El modelo no está disponible: {e}")
 
 
 # ------------------------------------------------------------ Barra lateral
@@ -73,11 +101,15 @@ def barra_lateral():
                 contenido, nombre = subido.getvalue(), subido.name
 
         st.markdown("**Parámetros**")
-        n_zonas = st.slider("Zonas de cultivo", 2, 8, 4, help="Si el archivo ya trae una columna Zona, se usa esa.")
         litros = st.number_input("Agua por riego (litros)", min_value=1.0, value=50.0, step=5.0,
-                                 help="Litros que se gastan cada vez que se riega en una lectura.")
+                                 help="Litros que se aplican cada vez que se abre la válvula.")
+        horario = st.multiselect("Cronograma tradicional (horas)", list(range(24)), default=[6, 12, 18],
+                                 help="Horas a las que hoy se riega por reloj. Es la referencia del ahorro.")
+        horas_entre = st.slider("Horas mínimas entre riegos", 1, 12, 6,
+                                help="Tras regar, el suelo queda repuesto: las horas críticas siguientes "
+                                     "no cuentan como un riego nuevo.")
         costo = st.number_input("Costo del agua (Bs por m³)", min_value=0.0, value=5.0, step=0.5)
-    return contenido, nombre, n_zonas, litros, costo
+    return contenido, nombre, litros, tuple(sorted(horario)) or (6, 12, 18), horas_entre, costo
 
 
 # ------------------------------------------------------------ Pestañas
@@ -106,7 +138,7 @@ def tab_resumen(df, res, plot, es_tiempo, general, modo):
         ("Lecturas analizadas", fmt(general["lecturas"]), f"{fmt(general['regar'])} piden riego"),
         ("Zonas que piden riego", f"{general['zonas_riego']} de {general['zonas_total']}",
          "prioridad alta o media", "alerta" if general["zonas_riego"] else "hoja"),
-        ("Agua ahorrada", f"{fmt(general['ahorro'])} L", f"{fmt(general['pct_ahorro'], 1)} % menos que regar siempre", "agua"),
+        ("Agua ahorrada", f"{fmt(general['ahorro'])} L", f"{fmt(general['pct_ahorro'], 1)} % frente al cronograma tradicional", "agua"),
         ("Lecturas con riego", f"{fmt(general['pct_regar'], 0)} %", f"{fmt(general['regar'])} de {fmt(general['lecturas'])}"),
     ])
 
@@ -158,17 +190,31 @@ def tab_zonas(res, plot, zonas):
         mostrar(grafico_humedad_zona(zonas, orden))
 
 
-def tab_ahorro(res, zonas, general, litros, costo):
+def tab_ahorro(res, zonas, general, litros, costo, horario):
     if res is None:
         vacio("Aún no hay cálculo de ahorro",
               "Pulsa «Analizar y predecir riego» para comparar el riego tradicional con el optimizado.")
         return
-    tanque(general["agua_optimizada"], general["ahorro"], general["pct_ahorro"])
+    horas_txt = ", ".join(f"{h} h" for h in horario)
+    st.markdown(
+        f"Con tu cronograma tradicional ibas a gastar **{fmt(general['agua_tradicional'])} L** "
+        f"({fmt(general['riegos_tradicional'])} riegos a las {horas_txt}). Con la optimización de IA "
+        f"gastarás **{fmt(general['agua_optimizada'])} L** ({fmt(general['riegos_ia'])} riegos)."
+    )
+    if general["ahorro"] < 0:
+        st.info(
+            "En este período el sistema riega **más** que el cronograma fijo: el horario tradicional se "
+            "queda corto cuando hace calor y el suelo se seca. El valor del sistema aquí no es ahorrar, "
+            "sino regar cuando el cultivo lo necesita."
+        )
+    tanque(general["agua_optimizada"], max(general["ahorro"], 0), max(general["pct_ahorro"], 0))
 
     st.write("")
     cifras([
-        ("Riego tradicional", f"{fmt(general['agua_tradicional'])} L", "regando en todas las lecturas"),
-        ("Riego optimizado", f"{fmt(general['agua_optimizada'])} L", "regando solo cuando el modelo lo indica", "agua"),
+        ("Riego tradicional", f"{fmt(general['agua_tradicional'])} L",
+         f"{fmt(general['riegos_tradicional'])} riegos a horario fijo"),
+        ("Riego optimizado", f"{fmt(general['agua_optimizada'])} L",
+         f"{fmt(general['riegos_ia'])} riegos cuando el modelo lo indica", "agua"),
         ("Agua ahorrada", f"{fmt(general['ahorro'] / 1000, 2)} m³", f"{fmt(general['pct_ahorro'], 1)} % del consumo", "hoja"),
         ("Ahorro en costo", f"Bs {fmt(general['costo_ahorro'], 2)}", f"a Bs {fmt(costo, 2)} por m³"),
     ])
@@ -179,7 +225,7 @@ def tab_ahorro(res, zonas, general, litros, costo):
         pd.DataFrame({"Zona": zonas["Zona"], "Tipo": "Riego optimizado", "Litros": zonas["Agua_optimizada"]}),
     ])
     titulo_seccion("Consumo de agua por zona",
-                   f"Se compara con regar en todas las lecturas, a {fmt(litros)} L por riego.")
+                   f"Cronograma tradicional frente a riego optimizado, a {fmt(litros)} L por riego.")
     mostrar(grafico_consumo(largo, orden))
 
     titulo_seccion("Plan de riego recomendado", "Las zonas con más lecturas en riego van primero.")
@@ -229,7 +275,8 @@ def tab_datos(df, res, modo):
 
 
 # ------------------------------------------------------------ Flujo principal
-contenido, nombre, n_zonas, litros, costo = barra_lateral()
+contenido, nombre, litros, horario, horas_entre, costo = barra_lateral()
+consulta_rapida()
 
 if contenido is None:
     hero("Riego inteligente", "Carga un archivo con lecturas de temperatura, humedad del aire y humedad del suelo.", [], "Sin datos")
@@ -258,8 +305,8 @@ if df.empty:
 if descartadas:
     st.warning(f"Se descartaron {descartadas} filas con datos vacíos o no numéricos.")
 
-df, n_zonas_real = asignar_zonas(df, n_zonas)
 info = info_desde_nombre(nombre)
+df, n_zonas_real = asignar_zonas(df, f"Invernadero · {info['cultivo']}" if info["cultivo"] else "Invernadero")
 clave = f"{nombre}|{n_zonas_real}|{len(df)}"
 
 resultado = st.session_state.get("resultado")
@@ -272,8 +319,8 @@ detalle_suelo = f"Suelo {info['suelo'].lower()}. " if info["suelo"] else ""
 hero(
     titulo,
     f"{detalle_suelo}{fmt(len(df))} lecturas de temperatura, humedad del aire y humedad del suelo, "
-    f"repartidas en {n_zonas_real} zonas.",
-    [f"{fmt(len(df))} lecturas", f"{n_zonas_real} zonas"],
+    f"de {n_zonas_real} {'invernadero' if n_zonas_real == 1 else 'invernaderos'}.",
+    [f"{fmt(len(df))} lecturas", f"{n_zonas_real} {'zona' if n_zonas_real == 1 else 'zonas'}"],
     modo,
 )
 
@@ -288,7 +335,7 @@ with col_boton:
 
 if analizar:
     with st.spinner("Analizando las condiciones de cada zona..."):
-        pred, modo_pred, motivo = ejecutar_prediccion(df[FEATURES])
+        pred, modo_pred, motivo = ejecutar_prediccion(df, info["cultivo"])
         res_nuevo = aplicar_prediccion(df, pred)
     st.session_state["resultado"] = {"clave": clave, "res": res_nuevo, "modo": modo_pred, "motivo": motivo}
     st.toast("Análisis completado")
@@ -302,7 +349,7 @@ if resultado and resultado["modo"] == "Modo simulado":
 
 res = resultado["res"] if resultado else None
 plot, es_tiempo = preparar_plot(res if res is not None else df)
-zonas = resumen_zonas(res, litros) if res is not None else None
+zonas = resumen_zonas(res, litros, horario, horas_entre) if res is not None else None
 general = resumen_general(res, zonas, litros, costo) if res is not None else None
 
 t1, t2, t3, t4 = st.tabs(["Resumen", "Zonas", "Ahorro de agua", "Datos"])
@@ -311,6 +358,6 @@ with t1:
 with t2:
     tab_zonas(res, plot, zonas)
 with t3:
-    tab_ahorro(res, zonas, general, litros, costo)
+    tab_ahorro(res, zonas, general, litros, costo, horario)
 with t4:
     tab_datos(df, res, modo)

@@ -55,8 +55,11 @@ def etiqueta_dataset(nombre):
 def leer_archivo(contenido, nombre):
     buf = io.BytesIO(contenido)
     if nombre.lower().endswith(".csv"):
-        return pd.read_csv(buf)
-    return pd.read_excel(buf)
+        df = pd.read_csv(buf, encoding="utf-8-sig")  # el CSV del proyecto trae BOM
+    else:
+        df = pd.read_excel(buf)
+    df.columns = [str(c).replace("﻿", "").strip() for c in df.columns]
+    return df
 
 
 def columnas_faltantes(df):
@@ -73,11 +76,23 @@ def limpiar(df):
     return df, antes - len(df)
 
 
-def asignar_zonas(df, n_zonas):
-    """Si el archivo trae una columna 'Zona' la respeta; si no, reparte las lecturas en n zonas."""
+def asignar_zonas(df, nombre_unico="Invernadero"):
+    """Cada zona es un lugar físico real.
+
+    - Si el archivo trae 'Zona', se respeta.
+    - Si trae 'Invernadero' (datasets_combinados.csv), cada invernadero es una zona.
+    - Si no, todo el archivo es un solo invernadero (los dataset_0X.xlsx son uno cada uno).
+
+    Antes las lecturas se repartían por turno (lectura 1 -> Zona 1, lectura 2 -> Zona 2...),
+    con lo que una "zona" era un conjunto de horas sueltas y no un lugar.
+    """
     df = df.copy()
     if "Zona" in df.columns:
         df["Zona"] = df["Zona"].astype(str)
-        return df, df["Zona"].nunique()
-    df["Zona"] = [f"Zona {i % n_zonas + 1}" for i in range(len(df))]
-    return df, n_zonas
+    elif "Invernadero" in df.columns:
+        cult = df["Cultivo"].astype(str) if "Cultivo" in df.columns else None
+        num = df["Invernadero"].astype(str).str.zfill(2)
+        df["Zona"] = ("Inv. " + num + (" · " + cult if cult is not None else "")).astype(str)
+    else:
+        df["Zona"] = nombre_unico
+    return df, df["Zona"].nunique()

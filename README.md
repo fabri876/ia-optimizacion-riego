@@ -71,3 +71,22 @@ predict.py: Script (Backend) que conecta el modelo con la interfaz para hacer pr
 requirements.txt: Lista oficial de librerías del proyecto.
 
 Nota para el equipo: Recuerden siempre activar el entorno virtual (venv) antes de ejecutar cualquier comando de Python o de instalar nuevas librerías.
+
+---
+
+## 🧠 Modelo de IA
+
+El modelo ya viene entrenado en `model/modelo_riego.pkl` (las métricas están en `model/modelo_riego.json`). Para volver a entrenarlo:
+
+```bash
+python src/train.py
+```
+
+Compara Árbol de Decisión, Random Forest, Regresión Logística y Perceptrón Multicapa, elige el de mejor F1 en la clase «Regar» y ajusta el umbral para detectar al menos el 95 % de los estados críticos. Resultado actual sobre el conjunto de prueba: **Random Forest**, exactitud 0,873, exhaustividad «Regar» 0,969 (23 falsos negativos de 747).
+
+| Archivo | Qué hace |
+|---|---|
+| `src/preparacion.py` | Limpieza y atributos del modelo (media móvil de 24 h, cultivo, hora cíclica, DPV) |
+| `src/train.py` | Entrenamiento, selección del modelo y evaluación |
+| `src/predict.py` | `predecir(df)` para la interfaz y `predecir_condicion(...)` para la consulta rápida |
+| `src/optimizacion.py` | Litros del cronograma tradicional frente a los del sistema |
