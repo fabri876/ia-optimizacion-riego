@@ -17,12 +17,13 @@ from optimizacion import comparar
 from simulador import predecir as simular_reglas
 
 
-def clasificar_condicion(t, ha, hs, hora, cultivo):
+def clasificar_condicion(t, ha, hs, hora, cultivo, fecha_hora=None, media24=None):
     """Decisión del modelo para una condición puntual. Si predict.py no está disponible, usa reglas de ejemplo."""
     try:
         from predict import predecir_condicion
 
-        r = predecir_condicion(t, ha, hs, hora=hora, cultivo=cultivo)
+        r = predecir_condicion(t, ha, hs, hora=hora, cultivo=cultivo, fecha_hora=fecha_hora,
+                               humedad_suelo_media24=media24)
         return {
             "decision": normalizar_decision(r["decision"]),
             "estado": normalizar_estado(r["estado"]),
@@ -44,12 +45,12 @@ def clasificar_condicion(t, ha, hs, hora, cultivo):
         }
 
 
-def curva_decision(t, ha, hora, cultivo, paso=5):
+def curva_decision(t, ha, hora, cultivo, paso=5, fecha_hora=None, media24=None):
     """Respuesta del modelo para humedades de suelo de 0 a 100 %, dejando fija la temperatura, la humedad
     del aire, la hora y el cultivo. Devuelve (tabla, umbral %, humedad donde deja de regar, modo)."""
     filas, umbral, modo = [], 0.5, "Modelo IA"
     for hs in range(0, 101, paso):
-        r = clasificar_condicion(t, ha, float(hs), hora, cultivo)
+        r = clasificar_condicion(t, ha, float(hs), hora, cultivo, fecha_hora, media24)
         filas.append({"Hum_suelo": hs, "Probabilidad": r["probabilidad"] * 100, "Decision": r["decision"]})
         umbral, modo = r["umbral"], r["modo"]
     curva = pd.DataFrame(filas)
