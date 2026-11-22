@@ -113,7 +113,11 @@ def resumen_zonas(res, litros, horario=HORARIO_TRADICIONAL, horas_entre=HORAS_EN
         pct = regar / n * 100
         prioridad = "Alta" if pct >= 60 else ("Media" if pct >= 30 else "Baja")
         accion = {"Alta": "Regar ahora", "Media": "Programar riego", "Baja": "No regar"}[prioridad]
-        comp = comparar(g, g["Pred_Decision"] == "Regar", litros, tcol, horario, horas_entre)
+        if tcol is None:
+            # Sin fecha y hora no existe cronograma que comparar: se deja el ahorro en cero.
+            comp = {"riegos_tradicional": 0, "riegos_ia": 0, "agua_tradicional": 0.0, "agua_optimizada": 0.0}
+        else:
+            comp = comparar(g, g["Pred_Decision"] == "Regar", litros, tcol, horario, horas_entre)
         trad, opt = comp["agua_tradicional"], comp["agua_optimizada"]
         fila = {
             "Zona": zona,
@@ -131,6 +135,7 @@ def resumen_zonas(res, litros, horario=HORARIO_TRADICIONAL, horas_entre=HORAS_EN
             "Agua_tradicional": trad,
             "Agua_optimizada": opt,
             "Ahorro": trad - opt,
+            "Con_fecha": tcol is not None,
         }
         fila["Recomendacion"] = recomendacion(fila)
         filas.append(fila)
@@ -156,6 +161,7 @@ def resumen_general(res, zonas, litros, costo_m3):
         "costo_ahorro": ahorro / 1000 * costo_m3,
         "zonas_total": len(zonas),
         "zonas_riego": int((zonas["Prioridad"] != "Baja").sum()),
+        "con_fecha": bool(zonas["Con_fecha"].all()),
     }
 
 
@@ -287,3 +293,51 @@ def contexto_humedad(res, hs, margen=5, minimo=20):
     if len(sel) < minimo:
         return None
     return len(sel), float((sel["Pred_Decision"] == "Regar").mean() * 100)
+
+
+# ------------------------------------------------------------------
+# Métricas del modelo y calidad de los datos
+# ------------------------------------------------------------------
+def metricas_modelo(res):
+    """Aciertos, detección y falsas alarmas de la clase Regar frente a la etiqueta real del dataset."""
+    if COL_DECISION not in res.columns:
+        return None
+    real = res[COL_DECISION].map(normalizar_decision) == "Regar"
+    pred = res["Pred_Decision"] == "Regar"
+    tp, fp = int((real & pred).sum()), int((~real & pred).sum())
+    fn, tn = int((real & ~pred).sum()), int((~real & ~pred).sum())
+    n = len(res)
+    return {
+        "aciertos": (tp + tn) / n * 100 if n else 0,
+        "deteccion": tp / (tp + fn) * 100 if (tp + fn) else None,   # de las veces que había que regar, cuántas detectó
+        "precision": tp / (tp + fp) * 100 if (tp + fp) else None,   # de las veces que dijo regar, cuántas era cierto
+        "tp": tp, "fp": fp, "fn": fn, "tn": tn,
+    }
+
+
+def calidad_datos(res, descartadas):
+    """Revisión rápida de los datos de entrada: lo que se descartó, valores imposibles, repetidos y huecos."""
+    fuera = int((
+        (res[COL_HAMB] < 0) | (res[COL_HAMB] > 100) | (res[COL_HSUELO] < 0) | (res[COL_HSUELO] > 100)
+        | (res[COL_TEMP] < -10) | (res[COL_TEMP] > 60)
+    ).sum())
+    out = {"descartadas": int(descartadas), "fuera_rango": fuera, "repetidas": None, "huecos": None, "faltan": None}
+    tcol = columna_tiempo(res)
+    if tcol is None:
+        return out
+    t = serie_tiempo(res)
+    out["repetidas"] = int(pd.DataFrame({"t": t, "z": res["Zona"]}).duplicated().sum())
+    huecos, faltan = 0, 0
+    for _, tz in t.groupby(res["Zona"]):
+        tz = tz.dropna().sort_values().drop_duplicates()
+        if len(tz) < 3:
+            continue
+        pasos = tz.diff().dropna()
+        tipico = pasos.median()
+        if tipico <= pd.Timedelta(0):
+            continue
+        grandes = pasos[pasos > tipico * 2]
+        huecos += len(grandes)
+        faltan += int(((grandes / tipico).round() - 1).sum())
+    out["huecos"], out["faltan"] = huecos, faltan
+    return out

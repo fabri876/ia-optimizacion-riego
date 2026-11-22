@@ -7,13 +7,14 @@ import pandas as pd
 import streamlit as st
 
 from analisis import (
-    MESES, aplicar_prediccion, contexto_humedad, evaluacion_modelo, fecha_corta,
-    intervalo_lecturas, lecturas_por_mes, orden_zonas, periodo, preparar_plot,
+    MESES, aplicar_prediccion, calidad_datos, contexto_humedad, evaluacion_modelo, fecha_corta,
+    intervalo_lecturas, lecturas_por_mes, metricas_modelo, orden_zonas, periodo, preparar_plot,
     regar_por_rango, resumen_general, resumen_zonas, tabla_estados, umbral_aproximado,
 )
 from componentes import (
-    cifras, ficha_decision, fmt, grafico_consumo, grafico_decisiones_zona, grafico_horas,
-    grafico_humedad_zona, grafico_meses, grafico_regar_rango, hero, mostrar, nota, parcela,
+    cifras, ficha_decision, fmt, grafico_consumo, grafico_cultivos, grafico_curva,
+    grafico_decisiones_zona, grafico_horas, grafico_humedad_zona, grafico_meses,
+    grafico_regar_rango, hero, mostrar, nota, parcela,
     pasos, pie_grafico, tabla_comparativa, tabla_estados_html, tanque, titulo_seccion,
     vacio, veredicto,
 )
@@ -22,7 +23,11 @@ from datos import (
     columnas_faltantes, etiqueta_dataset, info_desde_nombre, leer_archivo,
     limpiar, listar_datasets,
 )
-from escenario import clasificar_condicion, conflictos_cronograma, meses_disponibles, simular_plan
+from cultivos import resumen_por_archivo
+from escenario import (
+    clasificar_condicion, conflictos_cronograma, curva_decision, meses_disponibles,
+    perfil_horario, simular_plan,
+)
 from estilos import inyectar_estilos
 
 st.set_page_config(
@@ -34,6 +39,12 @@ st.set_page_config(
 inyectar_estilos()
 
 CULTIVOS = ["Tomate", "Pimentón", "Lechuga", "Frutilla", "Pepino"]
+
+
+@st.cache_data(show_spinner=False)
+def curva_cacheada(t, ha, hora, cultivo):
+    """La curva llama al modelo 21 veces; se guarda para no repetirlo en cada interacción."""
+    return curva_decision(t, ha, hora, cultivo)
 
 
 def signo(x, d=0):
@@ -147,7 +158,7 @@ def seccion_condicion(df, res, ent, info, clave):
 
     if enviar:
         st.session_state["puntual"] = {
-            "clave": clave, "hs": hs, "hora": hora,
+            "clave": clave, "t": t, "ha": ha, "hs": hs, "hora": hora, "cultivo": cultivo,
             "r": clasificar_condicion(t, ha, hs, hora, cultivo),
         }
 
@@ -168,6 +179,25 @@ def seccion_condicion(df, res, ent, info, clave):
     if r["modo"] == "Modo simulado":
         st.caption("El modelo entrenado no respondió, así que esta consulta usa reglas de ejemplo. "
                    f"Motivo técnico: {r['motivo']}")
+
+    curva, umbral_pct, limite, _ = curva_cacheada(p["t"], p["ha"], p["hora"], p["cultivo"])
+    titulo_seccion(
+        "¿Y con otra humedad del suelo?",
+        "Dejo fijas la temperatura, la humedad del aire, la hora y el cultivo que escribiste, y muevo solo la "
+        "humedad del suelo para ver dónde cambia la respuesta del modelo.",
+    )
+    mostrar(grafico_curva(curva, umbral_pct, p["hs"]))
+    if curva["Decision"].iloc[0] != "Regar":
+        resumen = "Con estas condiciones el modelo no indica regar ni con el suelo completamente seco."
+    elif limite is None:
+        resumen = "Con estas condiciones el modelo indica regar con cualquier humedad del suelo."
+    else:
+        resumen = (f"Con estas condiciones el modelo indica regar mientras la humedad del suelo sea menor que "
+                   f"aproximadamente {fmt(limite, 0)} %.")
+    pie_grafico(
+        f"{resumen} La curva azul es la probabilidad de regar, la línea punteada negra es el umbral desde el que "
+        f"el modelo riega ({fmt(umbral_pct, 0)} %) y la línea ámbar es la humedad que ingresaste ({fmt(p['hs'], 1)} %)."
+    )
 
 
 def seccion_plan(res, ent):
@@ -243,11 +273,24 @@ def seccion_plan(res, ent):
         f"{fmt(ent['litros'] / ent['superficie'], 2)} L por m² (1 L por m² es 1 mm de lámina de agua)."
     )
 
+    sug = sim["sugerido"]
+    if sug:
+        horas_s = ", ".join(f"{h:02d}:00" for h in sug)
+        dcosto = sim["costo_mes_sugerido"] - sim["costo_mes_plan"]
+        comparado = f"Bs {fmt(abs(dcosto), 2)} {'menos' if dcosto <= 0 else 'más'} al mes que tu cronograma"
+        st.markdown(
+            f"**Cronograma sugerido por el modelo:** {horas_s} ({len(sug)} {'riego' if len(sug) == 1 else 'riegos'} "
+            f"al día). Costaría Bs {fmt(sim['costo_mes_sugerido'], 2)} al mes, {comparado}."
+        )
+    else:
+        st.markdown("**Cronograma sugerido por el modelo:** en este mes casi no indicó riego, "
+                    "así que no hace falta un cronograma diario.")
+
     titulo_seccion(
         f"A qué horas pide riego el cultivo en {nombre_mes}",
         f"Cada barra indica en cuántos de los {sim['dias_con_datos']} días con datos el modelo marcó regar a esa hora. "
-        "Las líneas ámbar son las horas de tu cronograma: si caen donde las barras son bajas, estás regando "
-        "cuando el cultivo no lo pide.",
+        "La línea ámbar punteada son las horas de tu cronograma y la verde son las del cronograma sugerido. "
+        "Si tus líneas caen donde las barras son bajas, estás regando cuando el cultivo no lo pide.",
     )
     mostrar(grafico_horas(sim["horas"]))
     top = sim["horas"][sim["horas"]["Pct"] > 0].sort_values("Pct", ascending=False).head(3)
@@ -269,7 +312,7 @@ def tab_simulador(df, res, ent, info, clave):
 
 
 # ------------------------------------------------------------ Pestaña 2: Historial
-def tab_historial(df, res, zonas, modo):
+def tab_historial(df, res, zonas, modo, calidad, ent):
     titulo_seccion(
         "Los datos con los que aprendió el modelo",
         "Esto es lo que ya ocurrió en el invernadero. Aquí no se predice nada nuevo: se muestra cómo el modelo "
@@ -290,6 +333,32 @@ def tab_historial(df, res, zonas, modo):
             items.append(("Coincidencia con la etiqueta real", f"{fmt(ev[0], 1)} %",
                           f"con la columna {COL_DECISION} del dataset", "hoja"))
     cifras(items)
+
+    titulo_seccion(
+        "Calidad de los datos",
+        "El modelo solo es tan bueno como los datos con los que aprende. Si aquí aparecen problemas, "
+        "sus respuestas pueden fallar.",
+    )
+    q = calidad
+    calidad_items = [
+        ("Filas descartadas", fmt(q["descartadas"]), "vacías o no numéricas", "alerta" if q["descartadas"] else "hoja"),
+        ("Valores imposibles", fmt(q["fuera_rango"]), "humedad fuera de 0 a 100 % o temperatura fuera de -10 a 60 °C",
+         "alerta" if q["fuera_rango"] else "hoja"),
+    ]
+    if q["repetidas"] is not None:
+        calidad_items += [
+            ("Lecturas repetidas", fmt(q["repetidas"]), "misma fecha y hora en el mismo invernadero",
+             "alerta" if q["repetidas"] else "hoja"),
+            ("Huecos en el tiempo", fmt(q["huecos"]), f"faltan unas {fmt(q['faltan'])} lecturas",
+             "alerta" if q["huecos"] else "hoja"),
+        ]
+    cifras(calidad_items)
+    pct_regar = regar / n * 100
+    if min(pct_regar, 100 - pct_regar) < 10:
+        pie_grafico(
+            f"Solo {fmt(min(pct_regar, 100 - pct_regar), 1)} % de las lecturas pertenece a una de las dos decisiones. "
+            "Cuando una clase es tan poco frecuente, al modelo le cuesta aprender a reconocerla."
+        )
 
     tabla_mes = lecturas_por_mes(res)
     if tabla_mes is not None:
@@ -323,6 +392,16 @@ def tab_historial(df, res, zonas, modo):
         pie_grafico(f"Con el suelo por encima de aproximadamente {fmt(umbral, 0)} % de humedad, "
                     "el modelo casi siempre indica no regar.")
 
+    perfil = perfil_horario(res, ent["horario"])
+    if perfil is not None:
+        horas_h, dias_h = perfil
+        titulo_seccion(
+            "A qué horas pide riego el cultivo",
+            f"Cada barra indica en cuántos de los {fmt(dias_h)} días del archivo el modelo marcó regar a esa hora. "
+            "La línea ámbar punteada son las horas de tu cronograma.",
+        )
+        mostrar(grafico_horas(horas_h))
+
     titulo_seccion("Por invernadero" if len(zonas) > 1 else "Estado del invernadero",
                    "Necesidad de riego según el porcentaje de lecturas donde el modelo marcó regar: "
                    "alta desde 60 %, media desde 30 %, baja por debajo de 30 %.")
@@ -347,6 +426,11 @@ def tab_historial(df, res, zonas, modo):
 # ------------------------------------------------------------ Pestaña 3: Ahorro
 def tab_ahorro(res, zonas, general, ent):
     litros, costo, horario = ent["litros"], ent["costo"], ent["horario"]
+    if not general["con_fecha"]:
+        vacio("No se puede comparar con un cronograma",
+              "El archivo no trae fecha y hora, y sin ellas no sé cuántos días abarcan las lecturas ni a qué hora "
+              "caería cada riego del cronograma.")
+        return
     titulo_seccion(
         "Qué habría pasado con el modelo",
         "Compara dos formas de regar el mismo período del historial: con tu cronograma fijo y regando solo cuando el "
@@ -423,13 +507,103 @@ def tab_datos(res, modo):
     )
 
     if modo == "Modelo IA":
+        m = metricas_modelo(res)
         ev = evaluacion_modelo(res)
-        if ev is not None:
-            acierto, tabla = ev
-            titulo_seccion("Qué tan bien acierta el modelo",
-                           f"Comparación con la columna {COL_DECISION} del dataset: filas son lo real, columnas lo predicho.")
-            cifras([("Coincidencia con la etiqueta real", f"{fmt(acierto, 1)} %", "sobre todas las lecturas", "hoja")])
-            st.dataframe(tabla, width="stretch")
+        if m is not None and ev is not None:
+            titulo_seccion(
+                "Qué tan bien acierta el modelo",
+                f"Comparación con la columna {COL_DECISION} del dataset, que es lo que realmente se decidió.",
+            )
+            items = [("Aciertos", f"{fmt(m['aciertos'], 1)} %", "lecturas donde coincide con lo real", "hoja")]
+            if m["deteccion"] is not None:
+                items.append(("Riegos detectados", f"{fmt(m['deteccion'], 0)} %",
+                              f"de {fmt(m['tp'] + m['fn'])} lecturas donde había que regar, detectó {fmt(m['tp'])}"))
+            if m["precision"] is not None:
+                items.append(("Riegos acertados", f"{fmt(m['precision'], 0)} %",
+                              f"de {fmt(m['tp'] + m['fp'])} veces que dijo regar, {fmt(m['tp'])} era necesario"))
+            items.append(("Riegos que se le pasaron", fmt(m["fn"]),
+                          "había que regar y dijo No Regar: es el error más caro para el cultivo",
+                          "alerta" if m["fn"] else "hoja"))
+            cifras(items)
+            st.dataframe(ev[1], width="stretch")
+            nota("Cómo leer estas cifras", [
+                "Si el modelo se entrenó con estas mismas lecturas, los porcentajes salen más altos de lo que lograría "
+                "con datos nuevos. La medida honesta se obtiene con lecturas que el modelo no vio al entrenar.",
+                "Para el cultivo es peor no regar cuando hacía falta que regar de más, así que conviene mirar "
+                "primero cuántos riegos se le pasaron.",
+            ])
+
+
+# ------------------------------------------------------------ Pestaña 5: Comparar cultivos
+def tab_cultivos(ent):
+    titulo_seccion(
+        "Comparar cultivos",
+        "Aplica el mismo cronograma, los mismos litros y el mismo costo a todos los datasets del proyecto y muestra "
+        "qué cultivo necesita más riego y cuál ya está bien servido.",
+    )
+    archivos = [a for a in listar_datasets() if info_desde_nombre(a.name)["cultivo"]]
+    if len(archivos) < 2:
+        vacio("No hay datasets para comparar",
+              "Hacen falta al menos dos archivos con nombre tipo dataset_01_tomate_franco_cochabamba.xlsx en la carpeta data.")
+        return
+    if st.button(f"Analizar los {len(archivos)} datasets", key="btn_cultivos", type="primary"):
+        analizados = {}
+        with st.spinner("Clasificando cada dataset con el modelo..."):
+            for a in archivos:
+                info_a = info_desde_nombre(a.name)
+                try:
+                    crudo_a = leer_archivo(a.read_bytes(), a.name)
+                    if columnas_faltantes(crudo_a):
+                        raise ValueError("faltan columnas de entrada")
+                    df_a, _ = limpiar(crudo_a)
+                    df_a, _ = asignar_zonas(df_a, f"Invernadero · {info_a['cultivo']}")
+                    pred_a, modo_a, _ = ejecutar_prediccion(df_a, info_a["cultivo"])
+                    analizados[a.name] = {"res": aplicar_prediccion(df_a, pred_a), "info": info_a, "modo": modo_a}
+                except Exception as e:
+                    st.warning(f"No pude analizar «{a.name}»: {e}")
+        st.session_state["cultivos_res"] = analizados
+
+    analizados = st.session_state.get("cultivos_res")
+    if not analizados:
+        vacio("Todavía no se analizaron los cultivos",
+              "Pulsa el botón de arriba. El modelo clasificará las lecturas de cada archivo; puede tardar unos segundos.")
+        return
+
+    filas = [resumen_por_archivo(v["res"], v["info"], ent) for v in analizados.values()]
+    tabla = pd.DataFrame(filas)
+    con_modelo = tabla[tabla["Riegos_modelo"].notna()]
+    if len(con_modelo) >= 2:
+        mas = con_modelo.sort_values("Riegos_modelo", ascending=False).iloc[0]
+        menos = con_modelo.sort_values("Riegos_modelo").iloc[0]
+        cortos = ", ".join(con_modelo[con_modelo["Veredicto"] == "Se queda corto"]["Cultivo"]) or "ninguno"
+        de_mas = ", ".join(con_modelo[con_modelo["Veredicto"] == "Riega de más"]["Cultivo"]) or "ninguno"
+        veredicto(
+            f"{mas['Cultivo']} es el que más riego pide",
+            f"El modelo indicó unos {fmt(mas['Riegos_modelo'], 1)} riegos al día en {mas['Cultivo']} y "
+            f"{fmt(menos['Riegos_modelo'], 1)} en {menos['Cultivo']}, que es el que menos pide. "
+            f"Con tu cronograma de {len(ent['horario'])} riegos al día, se queda corto en: {cortos}. "
+            f"Riega de más en: {de_mas}.",
+            "agua",
+        )
+    elif len(con_modelo) == 1:
+        st.info("Solo un dataset trae fecha y hora, así que no se puede comparar cuántos riegos al día pide cada cultivo. "
+                "Se muestran los demás datos de la tabla.")
+    if not con_modelo.empty:
+        mostrar(grafico_cultivos(tabla))
+    mostrar_tabla = tabla.rename(columns={
+        "Hum_suelo": "Humedad del suelo (%)", "Pct_regar": "Lecturas con riego (%)",
+        "Riegos_plan": "Riegos por día (cronograma)", "Riegos_modelo": "Riegos por día (modelo)",
+        "Agua_mes_plan": "Agua al mes, cronograma (m³)", "Agua_mes_modelo": "Agua al mes, modelo (m³)",
+        "Dif_mes": "Diferencia al mes (m³)", "Veredicto": "Con tu cronograma",
+    })
+    columnas_num = ["Humedad del suelo (%)", "Lecturas con riego (%)", "Riegos por día (modelo)",
+                    "Agua al mes, cronograma (m³)", "Agua al mes, modelo (m³)", "Diferencia al mes (m³)"]
+    st.dataframe(
+        mostrar_tabla, hide_index=True, width="stretch",
+        column_config={c: st.column_config.NumberColumn(format="%.1f") for c in columnas_num},
+    )
+    pie_grafico("El agua al mes se calcula con 30 días y los litros por riego de la barra lateral. "
+                "Cada cultivo se compara con el mismo cronograma, aunque en la práctica cada uno tendría el suyo.")
 
 
 # ------------------------------------------------------------ Flujo principal
@@ -475,7 +649,12 @@ if resultado is None or resultado["clave"] != clave or ent["recalcular"]:
         resultado = {"clave": clave, "res": aplicar_prediccion(df, pred), "modo": modo_pred, "motivo": motivo}
     st.session_state["resultado"] = resultado
 
+if ent["recalcular"]:
+    curva_cacheada.clear()
+    st.session_state.pop("cultivos_res", None)
+
 res, modo = resultado["res"], resultado["modo"]
+calidad = calidad_datos(res, descartadas)
 zonas = resumen_zonas(res, ent["litros"], ent["horario"], ent["horas_entre"])
 general = resumen_general(res, zonas, ent["litros"], ent["costo"])
 
@@ -512,12 +691,14 @@ if modo == "Modo simulado":
         f"Motivo técnico: {resultado['motivo']}"
     )
 
-t1, t2, t3, t4 = st.tabs(["Simulador", "Qué pasó (historial)", "Ahorro con el modelo", "Datos"])
+t1, t2, t3, t4, t5 = st.tabs(["Simulador", "Qué pasó (historial)", "Ahorro con el modelo", "Comparar cultivos", "Datos"])
 with t1:
     tab_simulador(df, res, ent, info, clave)
 with t2:
-    tab_historial(df, res, zonas, modo)
+    tab_historial(df, res, zonas, modo, calidad, ent)
 with t3:
     tab_ahorro(res, zonas, general, ent)
 with t4:
+    tab_cultivos(ent)
+with t5:
     tab_datos(res, modo)

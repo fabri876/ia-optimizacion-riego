@@ -2,6 +2,7 @@
 import html
 
 import altair as alt
+import pandas as pd
 import streamlit as st
 
 COLORES_ESTADO = {"Óptimo": "#2F8F5B", "Crítico": "#D13F3F", "Saturado": "#7A5AC8"}
@@ -153,6 +154,11 @@ def parcela(z):
     nivel = max(0, min(100, z["Hum_suelo"]))
     dif = z["Ahorro"]
     texto_agua = (f"ahorra {fmt(dif)} L" if dif >= 0 else f"gasta {fmt(-dif)} L más")
+    if z.get("Con_fecha", True):
+        pie = (f'Con el cronograma tradicional: {fmt(z["Riegos_tradicional"])} riegos. '
+               f'Con el modelo: {fmt(z["Riegos_IA"])} riegos ({texto_agua}).')
+    else:
+        pie = f'El modelo indicó regar en {fmt(z["Regar"])} de {fmt(z["Lecturas"])} lecturas.'
     return (
         f'<div class="parcela">'
         f'<div class="tubo"><div class="relleno" style="height:{nivel:.0f}%;background:{color}"></div></div>'
@@ -165,8 +171,7 @@ def parcela(z):
         f'<div><b>{fmt(z["Hum_suelo"], 1)} %</b><span>humedad del suelo</span></div>'
         f'<div><b>{fmt(z["Temperatura"], 1)} °C</b><span>temperatura</span></div>'
         f'<div><b>{fmt(z["Hum_ambiente"], 0)} %</b><span>humedad del aire</span></div></div>'
-        f'<div class="parcela-pie">Con el cronograma tradicional: {fmt(z["Riegos_tradicional"])} riegos. '
-        f'Con el modelo: {fmt(z["Riegos_IA"])} riegos ({texto_agua}).</div>'
+        f'<div class="parcela-pie">{pie}</div>'
         f'</div></div>'
     )
 
@@ -249,7 +254,8 @@ def grafico_regar_rango(tabla, titulo_x):
 
 
 def grafico_horas(horas):
-    """% de días del mes en que el modelo indicó regar a cada hora. Las líneas ámbar son las horas del cronograma."""
+    """% de días en que el modelo indicó regar a cada hora.
+    Línea ámbar punteada: horas de tu cronograma. Línea verde: horas del cronograma sugerido."""
     escala = alt.Scale(domain=[-0.5, 23.5])
     barras = alt.Chart(horas).mark_bar(size=14, color="#1B73C9", cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
         x=alt.X("Hora:Q", scale=escala, axis=alt.Axis(values=list(range(24)), title="Hora del día", labelAngle=0)),
@@ -257,10 +263,51 @@ def grafico_horas(horas):
         tooltip=[alt.Tooltip("Hora:Q", title="Hora"), alt.Tooltip("Dias:Q", title="Días con riego"),
                  alt.Tooltip("Pct:Q", format=".0f", title="% de los días")],
     )
+    capas = [barras]
     plan = horas[horas["En_plan"]]
-    reglas = alt.Chart(plan).mark_rule(color="#E39A1B", strokeWidth=3, strokeDash=[5, 3]).encode(
-        x=alt.X("Hora:Q", scale=escala))
-    return _estilo(alt.layer(barras, reglas), 280)
+    if not plan.empty:
+        capas.append(alt.Chart(plan).mark_rule(color="#E39A1B", strokeWidth=3, strokeDash=[5, 3]).encode(
+            x=alt.X("Hora:Q", scale=escala)))
+    if "En_sugerido" in horas.columns:
+        sug = horas[horas["En_sugerido"]]
+        if not sug.empty:
+            capas.append(alt.Chart(sug).mark_rule(color="#2F8F5B", strokeWidth=3).encode(
+                x=alt.X("Hora:Q", scale=escala)))
+    return _estilo(alt.layer(*capas), 280)
+
+
+def grafico_curva(curva, umbral, hs_actual):
+    """Probabilidad de regar según la humedad del suelo, con las demás condiciones fijas."""
+    esc = alt.Scale(domain=[0, 100])
+    linea = alt.Chart(curva).mark_line(color="#1B73C9", strokeWidth=3, point=alt.OverlayMarkDef(color="#1B73C9", size=36)).encode(
+        x=alt.X("Hum_suelo:Q", title="Humedad del suelo (%)", scale=esc),
+        y=alt.Y("Probabilidad:Q", title="Probabilidad de regar (%)", scale=esc),
+        tooltip=[alt.Tooltip("Hum_suelo:Q", title="Humedad del suelo"),
+                 alt.Tooltip("Probabilidad:Q", format=".0f", title="Probabilidad de regar"), "Decision:N"],
+    )
+    corte = alt.Chart(alt.Data(values=[{"y": umbral}])).mark_rule(color="#12261C", strokeDash=[4, 4]).encode(
+        y=alt.Y("y:Q", scale=esc))
+    actual = alt.Chart(alt.Data(values=[{"x": hs_actual}])).mark_rule(color="#E39A1B", strokeWidth=3).encode(
+        x=alt.X("x:Q", scale=esc))
+    return _estilo(alt.layer(linea, corte, actual), 280)
+
+
+def grafico_cultivos(tabla):
+    """Riegos por día de cada cultivo: tu cronograma frente a lo que indicó el modelo."""
+    t = tabla[tabla["Riegos_modelo"].notna()]
+    largo = []
+    for r in t.itertuples():
+        largo.append({"Cultivo": r.Cultivo, "Tipo": "Tu cronograma", "Riegos": float(r.Riegos_plan)})
+        largo.append({"Cultivo": r.Cultivo, "Tipo": "Según el modelo", "Riegos": float(r.Riegos_modelo)})
+    largo = pd.DataFrame(largo)
+    c = alt.Chart(largo).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+        x=alt.X("Cultivo:N", title=None, axis=alt.Axis(labelAngle=0)),
+        xOffset="Tipo:N",
+        y=alt.Y("Riegos:Q", title="Riegos por día"),
+        color=_color("Tipo", {"Tu cronograma": "#C5D3C9", "Según el modelo": "#1B73C9"}, "Riegos por día"),
+        tooltip=["Cultivo:N", "Tipo:N", alt.Tooltip("Riegos:Q", format=".1f")],
+    )
+    return _estilo(c, 300)
 
 
 def grafico_decisiones_zona(p, orden):
