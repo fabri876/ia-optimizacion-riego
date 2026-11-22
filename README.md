@@ -2,14 +2,14 @@
 
 Este proyecto es un prototipo de software basado en **Inteligencia Artificial (Aprendizaje Supervisado y Clasificación)**. Analiza datos históricos y actuales de humedad y temperatura para clasificar el estado hídrico de un invernadero y optimizar el uso del agua de riego.
 
-## 🛠️ Requisitos Previos
+##    Requisitos Previos
 Antes de empezar, asegúrate de tener instalado en tu computadora:
 - [Python 3.8 o superior](https://www.python.org/downloads/)
 - [Git](https://git-scm.com/downloads)
 
 ---
 
-## 🚀 Guía de Instalación y Ejecución Local
+##  Guía de Instalación y Ejecución Local
 
 Sigue estos pasos para configurar el proyecto en tu máquina local:
 
