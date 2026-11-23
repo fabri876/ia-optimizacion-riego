@@ -137,9 +137,9 @@ def barra_lateral():
 def seccion_condicion(df, res, ent, info, clave):
     titulo_seccion(
         "¿Hay que regar ahora?",
-        "Escribe una lectura con los mismos campos del dataset (Fecha_Hora, Temperatura_C, "
-        "Humedad_ambiente_%, Humedad_suelo_% y Cultivo) y el modelo responde si conviene regar. "
-        "Los valores iniciales son los de la última lectura del historial.",
+        "Ingresa una lectura con los datos de fecha y hora, temperatura (°C), humedad ambiente (%), "
+        "humedad del suelo (%) y cultivo para ver si el modelo recomienda regar. "
+        "Los valores iniciales corresponden a la última lectura del historial.",
     )
     cultivos = sorted(df["Cultivo"].dropna().astype(str).unique()) if "Cultivo" in df.columns else CULTIVOS
     idx = cultivos.index(info["cultivo"]) if info["cultivo"] in cultivos else 0
@@ -153,18 +153,18 @@ def seccion_condicion(df, res, ent, info, clave):
         v = ultima[col] if ultima is not None else df[col].median()
         return round(float(min(max(v, lo), hi)), d)
 
-    # Promedio de Humedad_suelo_% de las últimas 24 lecturas: es el atributo de tendencia del modelo.
+    # Promedio de humedad del suelo de las últimas 24 lecturas: atributo de tendencia del modelo.
     media24_hist = float(validas[COL_HSUELO].tail(24).mean()) if len(validas) else None
 
     with st.form("condicion"):
-        c1, c2, c3 = st.columns(3)
-        fecha = c1.date_input("Fecha (Fecha_Hora)", t_ultima.date())
-        hora = c2.slider("Hora (Fecha_Hora)", 0, 23, int(t_ultima.hour))
-        cultivo = c3.selectbox("Cultivo", cultivos, index=idx)
-        c4, c5, c6 = st.columns(3)
-        t = c4.number_input("Temperatura_C (°C)", -10.0, 60.0, inicial(COL_TEMP, -10, 60, 1), 0.5)
-        ha = c5.number_input("Humedad_ambiente_% (%)", 0.0, 100.0, inicial(COL_HAMB, 0, 100, 0), 1.0)
-        hs = c6.number_input("Humedad_suelo_% (%)", 0.0, 100.0, inicial(COL_HSUELO, 0, 100, 1), 0.5)
+        st.markdown("**Fecha y hora**")
+        col_f, col_h = st.columns([1, 2])
+        fecha = col_f.date_input("Fecha", t_ultima.date())
+        hora = col_h.slider("Hora", 0, 23, int(t_ultima.hour))
+        t = st.number_input("Temperatura (°C)", -10.0, 60.0, inicial(COL_TEMP, -10, 60, 1), 0.5)
+        ha = st.number_input("Humedad ambiente (%)", 0.0, 100.0, inicial(COL_HAMB, 0, 100, 0), 1.0)
+        hs = st.number_input("Humedad del suelo (%)", 0.0, 100.0, inicial(COL_HSUELO, 0, 100, 1), 0.5)
+        cultivo = st.selectbox("Cultivo", cultivos, index=idx)
         usar_hist = st.checkbox(
             "Usar el promedio de humedad del suelo de las últimas 24 lecturas del historial"
             + (f" ({fmt(media24_hist, 1)} %)" if media24_hist is not None else ""),
@@ -203,7 +203,7 @@ def seccion_condicion(df, res, ent, info, clave):
     curva, umbral_pct, limite, _ = curva_cacheada(p["t"], p["ha"], p["hora"], p["cultivo"], p.get("fecha_hora"))
     titulo_seccion(
         "¿Y con otra humedad del suelo?",
-        "Dejo fijas la temperatura, la humedad del aire, la hora y el cultivo que escribiste, y muevo solo la "
+        "Dejo fijas la temperatura, la humedad del aire, la hora y el cultivo que ingresaste, y muevo solo la "
         "humedad del suelo para ver dónde cambia la respuesta del modelo.",
     )
     mostrar(grafico_curva(curva, umbral_pct, p["hs"]))
@@ -218,7 +218,6 @@ def seccion_condicion(df, res, ent, info, clave):
         f"{resumen} La curva azul es la probabilidad de regar, la línea punteada negra es el umbral desde el que "
         f"el modelo riega ({fmt(umbral_pct, 0)} %) y la línea ámbar es la humedad que ingresaste ({fmt(p['hs'], 1)} %)."
     )
-
 
 def seccion_plan(res, ent):
     titulo_seccion(
