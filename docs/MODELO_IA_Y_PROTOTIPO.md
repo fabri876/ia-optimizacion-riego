@@ -8,7 +8,7 @@ El problema se resolvió mediante **aprendizaje supervisado de clasificación**.
 
 ### Preparación de los datos
 
-El entrenamiento consume `data/datasets_combinados.csv`, construido desde los archivos Excel de los cultivos. Se procesaron 21 936 registros iniciales y se conservaron 20 820 registros válidos; se descartaron 1 116 filas con valores nulos. La limpieza convierte las entradas a valores numéricos, valida los rangos físicos, elimina duplicados y conserva solo etiquetas válidas.
+El entrenamiento consume `data/datasets_combinados.csv`, construido desde los archivos Excel de los cultivos. **Los datos son sintéticos**: se generaron por simulación (clima del invernadero, balance hídrico del suelo, riegos irregulares, ruido de sensor y faltantes), según la hoja `Parametros` de cada Excel; no son mediciones de campo. Se procesaron 21 936 registros iniciales y se conservaron 20 820 registros válidos; se descartaron 1 116 filas con valores nulos. La limpieza convierte las entradas a valores numéricos, valida los rangos físicos, elimina duplicados y conserva solo etiquetas válidas.
 
 Las variables de entrada originales son:
 
@@ -19,13 +19,13 @@ Las variables de entrada originales son:
 | `Humedad_suelo_%` | Humedad volumétrica del suelo. |
 | `Fecha_Hora` y `Cultivo` | Contexto temporal y tipo de cultivo cuando están disponibles. |
 
-Durante la preparación se derivan diez atributos: las tres mediciones base, media móvil de humedad del suelo de 24 horas, hora en representación cíclica seno/coseno, día de semana, mes, índice de déficit de presión de vapor (DPV) y código de cultivo. Los datos se separan en 14 475 registros de entrenamiento, 3 156 de validación y 3 189 de prueba, respetando la columna `Particion` cuando existe.
+Durante la preparación se derivan ocho atributos: las tres mediciones base, media móvil de humedad del suelo de 24 horas, hora en representación cíclica seno/coseno, déficit de presión de vapor en kPa (DPV = es(T)·(1 − HR/100)) y cultivo. No se usan el mes ni el día de la semana: cada invernadero cubre meses distintos, así que el mes funcionaba como identificador del invernadero. Los datos se separan en 14 475 registros de entrenamiento, 3 156 de validación y 3 189 de prueba (3 360 antes de quitar nulos), respetando la columna `Particion` (días completos asignados al azar).
 
 ### Modelado y selección
 
-`src/train.py` compara cuatro clasificadores: Árbol de Decisión, Random Forest, Regresión Logística y Perceptrón Multicapa. La selección se hace por el mejor F1 de la clase positiva `Regar` sobre validación. El modelo elegido fue **Random Forest** porque alcanzó F1 de 0.8343, superior a Árbol de Decisión (0.7949), Regresión Logística (0.4898) y Perceptrón Multicapa (0.8285).
+`src/train.py` compara cuatro clasificadores: Árbol de Decisión, Random Forest, Regresión Logística y Perceptrón Multicapa. Para cada uno busca hiperparámetros con validación cruzada de 5 pliegues agrupada por día (`GroupKFold`) sobre entrenamiento; en los modelos lineales el cultivo va en one-hot. La selección se hace por el mejor F1 de la clase positiva `Regar` sobre validación. El modelo elegido fue **Random Forest** (max_depth = 16, min_samples_leaf = 5) con F1 de 0.8203, superior a Árbol de Decisión (0.8056), Perceptrón Multicapa (0.7968) y Regresión Logística (0.7839).
 
-Después de seleccionar el modelo, se ajusta el umbral de decisión. En lugar de usar solamente 0.50, se eligió **0.22**, el mayor valor que conserva una exhaustividad mínima de 0.95 para `Regar`. Esto prioriza detectar los casos que realmente necesitan agua y reduce el riesgo agronómico de dejar sin riego una condición crítica.
+Después de seleccionar el modelo, se ajusta el umbral de decisión. En lugar de usar solamente 0.50, se eligió **0.28**, el mayor valor que conserva una exhaustividad mínima de 0.95 para `Regar`. Esto prioriza detectar los casos que realmente necesitan agua y reduce el riesgo agronómico de dejar sin riego una condición crítica.
 
 ### Evaluación
 
@@ -33,13 +33,13 @@ En el conjunto de prueba, el clasificador obtuvo los siguientes resultados repro
 
 | Métrica para `Regar` | Resultado |
 | --- | ---: |
-| Exactitud global | 0.8733 |
-| Precisión | 0.6552 |
-| Exhaustividad | 0.9692 |
-| F1 | 0.7819 |
-| Exactitud del estado hídrico | 0.9225 |
+| Exactitud global | 0.8608 |
+| Precisión | 0.6319 |
+| Exhaustividad | 0.9719 |
+| F1 | 0.7658 |
+| Exactitud del estado hídrico | 0.9163 |
 
-La matriz de confusión, con el orden `[[VN, FP], [FN, VP]]`, fue `[[2061, 381], [23, 724]]`. Los 23 falsos negativos se mantienen bajos frente a 747 casos reales de `Regar`, coherente con la prioridad del sistema de no omitir riegos necesarios.
+La matriz de confusión, con el orden `[[VN, FP], [FN, VP]]`, fue `[[2019, 423], [21, 726]]`. Los 21 falsos negativos se mantienen bajos frente a 747 casos reales de `Regar`, coherente con la prioridad del sistema de no omitir riegos necesarios.
 
 ## Especificaciones de tecnologías
 
@@ -63,6 +63,7 @@ La implementación está separada por responsabilidades:
 | --- | --- |
 | `src/preparacion.py` | Carga, limpieza, ingeniería de atributos y partición de los datos. |
 | `src/train.py` | Entrena los candidatos, selecciona Random Forest, ajusta el umbral y guarda el artefacto. |
+| `src/evaluar.py` | Aporte de atributos, métricas por invernadero, ahorro estimado sobre todos los días de prueba y figuras en `reports/`. |
 | `model/modelo_riego.pkl` | Modelo persistido que incluye clasificadores, umbral, atributos y métricas. |
 | `src/predict.py` | Expone `predecir(df, cultivo)` para lotes y `predecir_condicion(...)` para una lectura manual. |
 | `src/app.py` | Panel Streamlit para carga de archivos, consulta rápida, resultados y ahorro. |
@@ -83,6 +84,7 @@ py -3.12 -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python src/train.py
+python src/evaluar.py
 streamlit run src/app.py
 ```
 
@@ -90,17 +92,18 @@ En la interfaz se debe cargar uno de los Excel del directorio `data/`, pulsar **
 
 ### Evidencia de validación local
 
-La reproducción ejecutada en noviembre de 2026 confirmó el modelo Random Forest, el umbral 0.22 y las métricas de la tabla de evaluación. También se verificaron dos consultas puntuales:
+La reproducción ejecutada en noviembre de 2026 confirmó el modelo Random Forest, el umbral 0.28 y las métricas de la tabla de evaluación. También se verificaron dos consultas puntuales:
 
 | Condición | Resultado |
 | --- | --- |
-| 35 °C, 25 % de humedad ambiente, 15 % de humedad de suelo, tomate | `Regar`, estado `Crítico`, probabilidad 0.826. |
-| 20 °C, 85 % de humedad ambiente, 60 % de humedad de suelo, tomate | `No Regar`, estado `Óptimo`, probabilidad 0.018. |
+| 35 °C, 25 % de humedad ambiente, 15 % de humedad de suelo, tomate | `Regar`, estado `Crítico`, probabilidad 0.940. |
+| 20 °C, 85 % de humedad ambiente, 60 % de humedad de suelo, tomate | `No Regar`, estado `Óptimo`, probabilidad 0.000. |
 
 La aplicación Streamlit respondió correctamente en `http://localhost:8501` tras iniciar `streamlit run src/app.py`.
 
 ### Limitaciones
 
+- Los datos son sintéticos; las métricas y el ahorro deben validarse con mediciones reales del invernadero.
 - Las métricas solo representan los datasets disponibles; nuevos cultivos, sensores o condiciones climáticas requieren validación y posible reentrenamiento.
 - El porcentaje, litros y costo ahorrados dependen del cronograma tradicional y de los parámetros configurados por el usuario; no son una medición física automática de caudal.
 - El umbral bajo favorece la exhaustividad de `Regar`, por lo que acepta más falsos positivos para disminuir el riesgo de no regar un cultivo que lo necesita.

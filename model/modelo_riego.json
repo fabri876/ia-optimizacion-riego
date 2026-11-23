@@ -1,5 +1,5 @@
 {
-  "umbral": 0.22000000000000003,
+  "umbral": 0.28,
   "features": [
     "temperatura",
     "humedad_ambiente",
@@ -7,55 +7,112 @@
     "humedad_suelo_media24",
     "hora_sen",
     "hora_cos",
-    "dia_semana",
-    "mes",
-    "indice_dpv",
+    "dpv_kpa",
     "cultivo_cod"
   ],
   "nombre_modelo": "Random Forest",
-  "metricas_validacion": {
+  "hiperparametros": {
     "Árbol de Decisión": {
-      "exactitud": 0.8938529784537389,
-      "precision": 0.7341628959276018,
-      "exhaustividad": 0.8664886515353805,
-      "f1": 0.7948560930802204
+      "max_depth": 8,
+      "min_samples_leaf": 20
     },
     "Random Forest": {
-      "exactitud": 0.9192015209125475,
-      "precision": 0.8126582278481013,
-      "exhaustividad": 0.8571428571428571,
-      "f1": 0.834307992202729
+      "max_depth": 16,
+      "min_samples_leaf": 5
     },
     "Regresión Logística": {
-      "exactitud": 0.6600126742712294,
-      "precision": 0.3803545051698671,
-      "exhaustividad": 0.6875834445927904,
-      "f1": 0.4897765097479791
+      "C": 10.0
     },
     "Perceptrón Multicapa": {
-      "exactitud": 0.9198352344740177,
-      "precision": 0.8415977961432507,
-      "exhaustividad": 0.8157543391188251,
-      "f1": 0.8284745762711865
+      "alpha": 0.0001,
+      "hidden_layer_sizes": [
+        64,
+        32
+      ]
     }
   },
+  "validacion_cruzada": {
+    "Árbol de Decisión": {
+      "f1_media": 0.8545960452460679,
+      "f1_desv": 0.013460468717093112
+    },
+    "Random Forest": {
+      "f1_media": 0.8641320337845266,
+      "f1_desv": 0.01594226607687352
+    },
+    "Regresión Logística": {
+      "f1_media": 0.8383112059782301,
+      "f1_desv": 0.017868172571946235
+    },
+    "Perceptrón Multicapa": {
+      "f1_media": 0.8527781648645105,
+      "f1_desv": 0.016230249475353956
+    }
+  },
+  "metricas_validacion": {
+    "Árbol de Decisión": {
+      "exactitud": 0.8992395437262357,
+      "precision": 0.7429537767756482,
+      "exhaustividad": 0.8798397863818425,
+      "f1": 0.8056234718826406
+    },
+    "Random Forest": {
+      "exactitud": 0.9081115335868187,
+      "precision": 0.7653179190751445,
+      "exhaustividad": 0.8838451268357811,
+      "f1": 0.8203221809169765
+    },
+    "Regresión Logística": {
+      "exactitud": 0.882446134347275,
+      "precision": 0.6952479338842975,
+      "exhaustividad": 0.8985313751668892,
+      "f1": 0.7839254513686663
+    },
+    "Perceptrón Multicapa": {
+      "exactitud": 0.9046261089987325,
+      "precision": 0.8060109289617486,
+      "exhaustividad": 0.787716955941255,
+      "f1": 0.7967589466576638
+    }
+  },
+  "validacion_con_umbral": {
+    "exactitud": 0.8485424588086184,
+    "precision": 0.6175195143104943,
+    "exhaustividad": 0.9506008010680908,
+    "f1": 0.7486855941114616
+  },
   "metricas_prueba": {
-    "exactitud": 0.8733145186578865,
-    "precision": 0.6552036199095023,
-    "exhaustividad": 0.9692101740294511,
-    "f1": 0.7818574514038877
+    "exactitud": 0.8607714016933208,
+    "precision": 0.6318537859007833,
+    "exhaustividad": 0.9718875502008032,
+    "f1": 0.7658227848101266
   },
   "matriz_confusion": [
     [
-      2061,
-      381
+      2019,
+      423
     ],
     [
-      23,
-      724
+      21,
+      726
     ]
   ],
-  "exactitud_estado": 0.9225462527438069,
+  "exactitud_estado": 0.916274694261524,
+  "importancias": {
+    "cultivo_cod": 0.30236546266566156,
+    "humedad_suelo": 0.25188273618436596,
+    "humedad_suelo_media24": 0.2397706457801995,
+    "temperatura": 0.07150074210986225,
+    "humedad_ambiente": 0.05396353458840806,
+    "dpv_kpa": 0.052225483081948396,
+    "hora_sen": 0.014352188526560379,
+    "hora_cos": 0.013939207062993926
+  },
+  "registros": {
+    "entrenamiento": 14475,
+    "validacion": 3156,
+    "prueba": 3189
+  },
   "limpieza": {
     "filas_iniciales": 21936,
     "nulos": 1116,

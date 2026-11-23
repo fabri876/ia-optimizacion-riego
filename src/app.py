@@ -9,7 +9,7 @@ import streamlit as st
 from analisis import (
     MESES, aplicar_prediccion, calidad_datos, contexto_humedad, evaluacion_modelo, fecha_corta,
     intervalo_lecturas, lecturas_por_mes, metricas_modelo, orden_zonas, periodo, preparar_plot,
-    regar_por_rango, resumen_general, resumen_zonas, tabla_estados, umbral_aproximado,
+    regar_por_rango, resumen_general, resumen_zonas, serie_tiempo, tabla_estados, umbral_aproximado,
 )
 from componentes import (
     cifras, ficha_decision, fmt, grafico_consumo, grafico_cultivos, grafico_curva,
@@ -42,9 +42,9 @@ CULTIVOS = ["Tomate", "Pimentón", "Lechuga", "Frutilla", "Pepino"]
 
 
 @st.cache_data(show_spinner=False)
-def curva_cacheada(t, ha, hora, cultivo):
+def curva_cacheada(t, ha, hora, cultivo, fecha_hora=None):
     """La curva llama al modelo 21 veces; se guarda para no repetirlo en cada interacción."""
-    return curva_decision(t, ha, hora, cultivo)
+    return curva_decision(t, ha, hora, cultivo, fecha_hora=fecha_hora)
 
 
 def signo(x, d=0):
@@ -137,29 +137,49 @@ def barra_lateral():
 def seccion_condicion(df, res, ent, info, clave):
     titulo_seccion(
         "¿Hay que regar ahora?",
-        "Escribe las condiciones del invernadero y el modelo responde si conviene regar. "
-        "Los valores iniciales son la mediana del historial.",
+        "Escribe una lectura con los mismos campos del dataset (Fecha_Hora, Temperatura_C, "
+        "Humedad_ambiente_%, Humedad_suelo_% y Cultivo) y el modelo responde si conviene regar. "
+        "Los valores iniciales son los de la última lectura del historial.",
     )
     cultivos = sorted(df["Cultivo"].dropna().astype(str).unique()) if "Cultivo" in df.columns else CULTIVOS
     idx = cultivos.index(info["cultivo"]) if info["cultivo"] in cultivos else 0
 
-    def mediana(col, lo, hi, d):
-        return round(float(min(max(df[col].median(), lo), hi)), d)
+    validas = df.dropna(subset=[COL_TEMP, COL_HAMB, COL_HSUELO])
+    ultima = validas.iloc[-1] if len(validas) else None
+    tiempos = serie_tiempo(validas) if len(validas) else None
+    t_ultima = tiempos.dropna().iloc[-1] if tiempos is not None and tiempos.notna().any() else pd.Timestamp.now()
+
+    def inicial(col, lo, hi, d):
+        v = ultima[col] if ultima is not None else df[col].median()
+        return round(float(min(max(v, lo), hi)), d)
+
+    # Promedio de Humedad_suelo_% de las últimas 24 lecturas: es el atributo de tendencia del modelo.
+    media24_hist = float(validas[COL_HSUELO].tail(24).mean()) if len(validas) else None
 
     with st.form("condicion"):
         c1, c2, c3 = st.columns(3)
-        t = c1.number_input("Temperatura (°C)", -10.0, 60.0, mediana(COL_TEMP, -10, 60, 1), 0.5)
-        ha = c2.number_input("Humedad del aire (%)", 0.0, 100.0, mediana(COL_HAMB, 0, 100, 0), 1.0)
-        hs = c3.number_input("Humedad del suelo (%)", 0.0, 100.0, mediana(COL_HSUELO, 0, 100, 1), 0.5)
-        c4, c5 = st.columns(2)
-        hora = c4.slider("Hora del día", 0, 23, 14)
-        cultivo = c5.selectbox("Cultivo", cultivos, index=idx)
+        fecha = c1.date_input("Fecha (Fecha_Hora)", t_ultima.date())
+        hora = c2.slider("Hora (Fecha_Hora)", 0, 23, int(t_ultima.hour))
+        cultivo = c3.selectbox("Cultivo", cultivos, index=idx)
+        c4, c5, c6 = st.columns(3)
+        t = c4.number_input("Temperatura_C (°C)", -10.0, 60.0, inicial(COL_TEMP, -10, 60, 1), 0.5)
+        ha = c5.number_input("Humedad_ambiente_% (%)", 0.0, 100.0, inicial(COL_HAMB, 0, 100, 0), 1.0)
+        hs = c6.number_input("Humedad_suelo_% (%)", 0.0, 100.0, inicial(COL_HSUELO, 0, 100, 1), 0.5)
+        usar_hist = st.checkbox(
+            "Usar el promedio de humedad del suelo de las últimas 24 lecturas del historial"
+            + (f" ({fmt(media24_hist, 1)} %)" if media24_hist is not None else ""),
+            value=media24_hist is not None, disabled=media24_hist is None,
+            help="El modelo usa la tendencia de las últimas 24 h. Si no se marca, toma la lectura actual.",
+        )
         enviar = st.form_submit_button("Consultar al modelo", type="primary", key="btn_condicion")
 
     if enviar:
+        fecha_hora = pd.Timestamp(fecha) + pd.Timedelta(hours=int(hora))
+        media24 = media24_hist if usar_hist else None
         st.session_state["puntual"] = {
             "clave": clave, "t": t, "ha": ha, "hs": hs, "hora": hora, "cultivo": cultivo,
-            "r": clasificar_condicion(t, ha, hs, hora, cultivo),
+            "fecha_hora": fecha_hora,
+            "r": clasificar_condicion(t, ha, hs, hora, cultivo, fecha_hora, media24),
         }
 
     p = st.session_state.get("puntual")
@@ -180,7 +200,7 @@ def seccion_condicion(df, res, ent, info, clave):
         st.caption("El modelo entrenado no respondió, así que esta consulta usa reglas de ejemplo. "
                    f"Motivo técnico: {r['motivo']}")
 
-    curva, umbral_pct, limite, _ = curva_cacheada(p["t"], p["ha"], p["hora"], p["cultivo"])
+    curva, umbral_pct, limite, _ = curva_cacheada(p["t"], p["ha"], p["hora"], p["cultivo"], p.get("fecha_hora"))
     titulo_seccion(
         "¿Y con otra humedad del suelo?",
         "Dejo fijas la temperatura, la humedad del aire, la hora y el cultivo que escribiste, y muevo solo la "

@@ -1,0 +1,204 @@
+{
+  "ablacion": [
+    {
+      "configuracion": "Variables base (T, HR amb., HR suelo)",
+      "n": 3,
+      "exactitud": 0.7243346007604563,
+      "precision": 0.4459338695263628,
+      "exhaustividad": 0.6662216288384513,
+      "f1": 0.5342612419700214
+    },
+    {
+      "configuracion": "+ hora cíclica",
+      "n": 5,
+      "exactitud": 0.7690114068441065,
+      "precision": 0.5099800399201597,
+      "exhaustividad": 0.6822429906542056,
+      "f1": 0.5836664762992576
+    },
+    {
+      "configuracion": "+ DPV (kPa)",
+      "n": 6,
+      "exactitud": 0.7610899873257287,
+      "precision": 0.4975222993062438,
+      "exhaustividad": 0.6702269692923899,
+      "f1": 0.571103526734926
+    },
+    {
+      "configuracion": "+ media móvil 24 h",
+      "n": 7,
+      "exactitud": 0.7759822560202788,
+      "precision": 0.5219665271966527,
+      "exhaustividad": 0.6662216288384513,
+      "f1": 0.5853372434017595
+    },
+    {
+      "configuracion": "+ cultivo (vector completo)",
+      "n": 8,
+      "exactitud": 0.9081115335868187,
+      "precision": 0.7653179190751445,
+      "exhaustividad": 0.8838451268357811,
+      "f1": 0.8203221809169765
+    }
+  ],
+  "por_invernadero": [
+    {
+      "invernadero": 1,
+      "cultivo": "Tomate",
+      "registros": 646,
+      "regar": 91,
+      "exactitud": 0.9442724458204335,
+      "precision": 0.7165354330708661,
+      "exhaustividad": 1.0,
+      "f1": 0.8348623853211009
+    },
+    {
+      "invernadero": 2,
+      "cultivo": "Pimentón",
+      "registros": 644,
+      "regar": 117,
+      "exactitud": 0.84472049689441,
+      "precision": 0.541871921182266,
+      "exhaustividad": 0.9401709401709402,
+      "f1": 0.6875
+    },
+    {
+      "invernadero": 3,
+      "cultivo": "Lechuga",
+      "registros": 636,
+      "regar": 234,
+      "exactitud": 0.9198113207547169,
+      "precision": 0.8303249097472925,
+      "exhaustividad": 0.9829059829059829,
+      "f1": 0.9001956947162426
+    },
+    {
+      "invernadero": 4,
+      "cultivo": "Frutilla",
+      "registros": 636,
+      "regar": 186,
+      "exactitud": 0.7122641509433962,
+      "precision": 0.504225352112676,
+      "exhaustividad": 0.9623655913978495,
+      "f1": 0.6617375231053605
+    },
+    {
+      "invernadero": 5,
+      "cultivo": "Pepino",
+      "registros": 627,
+      "regar": 119,
+      "exactitud": 0.8819776714513556,
+      "precision": 0.6203208556149733,
+      "exhaustividad": 0.9747899159663865,
+      "f1": 0.7581699346405228
+    }
+  ],
+  "ahorro_dias_prueba": [
+    {
+      "invernadero": 1,
+      "cultivo": "Tomate",
+      "dias": 28,
+      "litros_tradicional": 2100.0,
+      "litros_ia": 625.0,
+      "litros_referencia": 500.0,
+      "ahorro_pct_total": 70.23809523809523,
+      "ahorro_pct_media": 70.23809523809524,
+      "ahorro_pct_min": -33.33333333333333,
+      "ahorro_pct_max": 100.0,
+      "horas_criticas": 91,
+      "deficit_ia": 0.0,
+      "deficit_tradicional": 0.3296703296703297
+    },
+    {
+      "invernadero": 2,
+      "cultivo": "Pimentón",
+      "dias": 28,
+      "litros_tradicional": 2100.0,
+      "litros_ia": 1275.0,
+      "litros_referencia": 775.0,
+      "ahorro_pct_total": 39.285714285714285,
+      "ahorro_pct_media": 39.285714285714285,
+      "ahorro_pct_min": -33.33333333333333,
+      "ahorro_pct_max": 100.0,
+      "horas_criticas": 117,
+      "deficit_ia": 0.11965811965811968,
+      "deficit_tradicional": 0.23076923076923073
+    },
+    {
+      "invernadero": 3,
+      "cultivo": "Lechuga",
+      "dias": 28,
+      "litros_tradicional": 2100.0,
+      "litros_ia": 1325.0,
+      "litros_referencia": 1175.0,
+      "ahorro_pct_total": 36.904761904761905,
+      "ahorro_pct_media": 36.90476190476191,
+      "ahorro_pct_min": -33.33333333333333,
+      "ahorro_pct_max": 100.0,
+      "horas_criticas": 234,
+      "deficit_ia": 0.042735042735042694,
+      "deficit_tradicional": 0.26068376068376065
+    },
+    {
+      "invernadero": 4,
+      "cultivo": "Frutilla",
+      "dias": 28,
+      "litros_tradicional": 2100.0,
+      "litros_ia": 1950.0,
+      "litros_referencia": 1300.0,
+      "ahorro_pct_total": 7.142857142857142,
+      "ahorro_pct_media": 7.142857142857143,
+      "ahorro_pct_min": -33.33333333333333,
+      "ahorro_pct_max": 100.0,
+      "horas_criticas": 186,
+      "deficit_ia": 0.021505376344086002,
+      "deficit_tradicional": 0.18279569892473113
+    },
+    {
+      "invernadero": 5,
+      "cultivo": "Pepino",
+      "dias": 28,
+      "litros_tradicional": 2100.0,
+      "litros_ia": 1000.0,
+      "litros_referencia": 775.0,
+      "ahorro_pct_total": 52.38095238095239,
+      "ahorro_pct_media": 52.38095238095239,
+      "ahorro_pct_min": -33.33333333333333,
+      "ahorro_pct_max": 100.0,
+      "horas_criticas": 119,
+      "deficit_ia": 0.05882352941176472,
+      "deficit_tradicional": 0.23529411764705888
+    },
+    {
+      "invernadero": "Total",
+      "cultivo": "",
+      "dias": 140,
+      "litros_tradicional": 10500.0,
+      "litros_ia": 6175.0,
+      "litros_referencia": 4525.0,
+      "ahorro_pct_total": 41.19047619047619,
+      "ahorro_pct_media": 41.19047619047619,
+      "ahorro_pct_min": -33.33333333333333,
+      "ahorro_pct_max": 100.0,
+      "horas_criticas": 747,
+      "deficit_ia": 0.04685408299866134,
+      "deficit_tradicional": 0.24096385542168675
+    }
+  ],
+  "supuestos": {
+    "litros_por_riego": 25.0,
+    "horario_tradicional": [
+      6,
+      12,
+      18
+    ],
+    "horas_entre_riegos": 6
+  },
+  "registros_prueba_antes_limpieza": 3360,
+  "figuras": {
+    "matriz_confusion": "reports\\figuras\\matriz_confusion.png",
+    "curva_pr": "reports\\figuras\\curva_pr.png",
+    "cronograma_semana": "reports\\figuras\\cronograma_semana.png"
+  },
+  "f1_prueba_umbral_05": 0.8415841584158416
+}
