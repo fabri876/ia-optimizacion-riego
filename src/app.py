@@ -222,24 +222,31 @@ def seccion_condicion(df, res, ent, info, clave):
 def seccion_plan(res, ent):
     titulo_seccion(
         "Plan del mes: ¿alcanza tu cronograma?",
-        "Elige un mes. El modelo revisa las condiciones de ese mes en el historial, calcula cuántas veces "
-        "al día hacía falta regar y lo compara con tu cronograma.",
+        "Elige un mes e invernadero. El sistema revisa las lecturas históricas de ese mes, estima el "
+        "promedio diario de riegos según el modelo y lo compara con tu cronograma actual.",
     )
     horas_txt = ", ".join(f"{h:02d}:00" for h in ent["horario"])
     st.markdown(
-        f"**Tu cronograma:** {len(ent['horario'])} riegos al día ({horas_txt}), con {fmt(ent['litros'])} L por riego "
-        f"y agua a Bs {fmt(ent['costo'], 2)} por m³. Puedes cambiarlo en la barra lateral."
+        f"**Tu cronograma actual:** {len(ent['horario'])} "
+        f"{'riego' if len(ent['horario']) == 1 else 'riegos'} al día ({horas_txt}), "
+        f"con {fmt(ent['litros'])} L por riego y agua a Bs {fmt(ent['costo'], 2)} por m³. "
+        "Puedes modificar estos valores en la barra lateral."
     )
 
     meses = meses_disponibles(res)
     if not meses:
-        vacio("No se puede simular un mes",
-              "El archivo no trae una columna de fecha y hora, y sin ella no sé a qué mes corresponde cada lectura.")
+        vacio(
+            "No se puede simular un mes",
+            "El archivo no trae una columna de fecha y hora, y sin ella no es posible agrupar las lecturas por mes.",
+        )
         return
     dias_por_mes = dict(meses)
     c1, c2 = st.columns(2)
-    mes = c1.selectbox("Mes a simular", [m for m, _ in meses],
-                       format_func=lambda m: f"{MESES[m - 1].capitalize()} ({dias_por_mes[m]} días con datos)")
+    mes = c1.selectbox(
+        "Mes a simular",
+        [m for m, _ in meses],
+        format_func=lambda m: f"{MESES[m - 1].capitalize()} ({dias_por_mes[m]} días con datos)",
+    )
     zonas_lista = orden_zonas(res)
     if len(zonas_lista) > 1:
         zona = c2.selectbox("Invernadero", zonas_lista)
@@ -249,7 +256,7 @@ def seccion_plan(res, ent):
 
     sim = simular_plan(res, mes, zona, ent["litros"], ent["horario"], ent["horas_entre"], ent["costo"])
     if sim is None:
-        vacio("Sin datos para ese mes", "No hay lecturas de ese invernadero en el mes elegido.")
+        vacio("Sin datos para ese mes", "No hay lecturas de ese invernadero en el mes seleccionado.")
         return
 
     nombre_mes = MESES[mes - 1]
@@ -260,21 +267,23 @@ def seccion_plan(res, ent):
     if dif > 0.5:
         veredicto(
             f"Tu cronograma se queda corto en {nombre_mes}",
-            f"El modelo indicó regar unas {fmt(mod, 1)} veces al día y tu cronograma tiene {plan}. "
-            f"Te faltarían unos {fmt(dif, 1)} riegos diarios: {fmt(extra_l)} L y Bs {fmt(extra_bs, 2)} más en el mes.",
+            f"El modelo promedia unos {fmt(mod, 1)} riegos al día y tu cronograma tiene {plan}. "
+            f"Faltarían unos {fmt(dif, 1)} riegos diarios en promedio: {fmt(extra_l)} L y "
+            f"Bs {fmt(extra_bs, 2)} adicionales en el mes.",
             "alerta",
         )
     elif dif < -0.5:
         veredicto(
             f"Tu cronograma riega de más en {nombre_mes}",
-            f"El modelo indicó regar unas {fmt(mod, 1)} veces al día y tu cronograma tiene {plan}. "
-            f"Podrías ahorrar unos {fmt(-dif, 1)} riegos diarios: {fmt(extra_l)} L y Bs {fmt(extra_bs, 2)} en el mes.",
+            f"El modelo promedia unos {fmt(mod, 1)} riegos al día y tu cronograma tiene {plan}. "
+            f"Con un ajuste de unos {fmt(-dif, 1)} riegos diarios menos en promedio, el ahorro estimado "
+            f"en el mes es de {fmt(extra_l)} L y Bs {fmt(extra_bs, 2)}.",
             "agua",
         )
     else:
         veredicto(
             f"Tu cronograma coincide con el modelo en {nombre_mes}",
-            f"El modelo indicó regar unas {fmt(mod, 1)} veces al día y tu cronograma tiene {plan}.",
+            f"El modelo promedia unos {fmt(mod, 1)} riegos al día y tu cronograma contempla {plan}.",
         )
 
     tabla_comparativa([
@@ -288,8 +297,8 @@ def seccion_plan(res, ent):
          signo(sim["costo_mes_modelo"] - sim["costo_mes_plan"], 2)),
     ])
     pie_grafico(
-        f"Cada riego de {fmt(ent['litros'])} L en {fmt(ent['superficie'])} m² equivale a "
-        f"{fmt(ent['litros'] / ent['superficie'], 2)} L por m² (1 L por m² es 1 mm de lámina de agua)."
+        f"Referencia: cada riego de {fmt(ent['litros'])} L en {fmt(ent['superficie'])} m² equivale a "
+        f"{fmt(ent['litros'] / ent['superficie'], 2)} L por m² (1 L por m² equivale a 1 mm de lámina de agua)."
     )
 
     sug = sim["sugerido"]
@@ -298,33 +307,35 @@ def seccion_plan(res, ent):
         dcosto = sim["costo_mes_sugerido"] - sim["costo_mes_plan"]
         comparado = f"Bs {fmt(abs(dcosto), 2)} {'menos' if dcosto <= 0 else 'más'} al mes que tu cronograma"
         st.markdown(
-            f"**Cronograma sugerido por el modelo:** {horas_s} ({len(sug)} {'riego' if len(sug) == 1 else 'riegos'} "
-            f"al día). Costaría Bs {fmt(sim['costo_mes_sugerido'], 2)} al mes, {comparado}."
+            f"**Cronograma sugerido (referencial):** {horas_s} ({len(sug)} "
+            f"{'riego' if len(sug) == 1 else 'riegos'} al día). "
+            f"Estimado de Bs {fmt(sim['costo_mes_sugerido'], 2)} al mes, {comparado}."
         )
     else:
-        st.markdown("**Cronograma sugerido por el modelo:** en este mes casi no indicó riego, "
-                    "así que no hace falta un cronograma diario.")
+        st.markdown(
+            "**Cronograma sugerido (referencial):** en este mes la demanda de riego es mínima, "
+            "por lo que no se requiere un cronograma fijo diario."
+        )
 
     titulo_seccion(
         f"A qué horas pide riego el cultivo en {nombre_mes}",
-        f"Cada barra indica en cuántos de los {sim['dias_con_datos']} días con datos el modelo marcó regar a esa hora. "
-        "La línea ámbar punteada son las horas de tu cronograma y la verde son las del cronograma sugerido. "
-        "Si tus líneas caen donde las barras son bajas, estás regando cuando el cultivo no lo pide.",
+        f"Cada barra muestra en qué porcentaje de los {sim['dias_con_datos']} días con datos de {nombre_mes} "
+        "el modelo marcó regar en esa hora. La línea ámbar punteada indica tu cronograma y la línea verde "
+        "el cronograma sugerido. Si tu horario cae en barras bajas, estás regando cuando hay poca demanda.",
     )
     mostrar(grafico_horas(sim["horas"]))
     top = sim["horas"][sim["horas"]["Pct"] > 0].sort_values("Pct", ascending=False).head(3)
     if not top.empty:
         txt = ", ".join(f"{int(r.Hora)}:00 ({fmt(r.Pct, 0)} % de los días)" for r in top.itertuples())
-        pie_grafico(f"Horas con más demanda: {txt}.")
+        pie_grafico(f"Horas con mayor demanda en {nombre_mes}: {txt}.")
 
     nota("Qué no calcula este sistema", [
-        "Producción del cultivo: el dataset no tiene datos de producción, así que no se puede estimar cuánta "
-        "cosecha se obtiene con un plan de riego.",
-        "Cuánto sube la humedad del suelo con cada riego: el dataset no registra cuánta agua se aplicó. "
-        "El modelo decide cuándo regar según las condiciones; los litros solo se usan para calcular gasto y costo.",
+        "Producción del cultivo: el dataset no contiene datos de rendimiento o cosecha, por lo que no se "
+        "estima producción agrícola a partir del plan de riego.",
+        "Variación real de humedad tras cada riego: el dataset no registra cuánto sube la humedad del suelo "
+        "después de aplicar agua. El modelo clasifica según las condiciones registradas y los litros sirven "
+        "para calcular volumen y costo.",
     ])
-
-
 def tab_simulador(df, res, ent, info, clave):
     seccion_condicion(df, res, ent, info, clave)
     seccion_plan(res, ent)
