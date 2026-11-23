@@ -82,11 +82,14 @@ El modelo ya viene entrenado en `model/modelo_riego.pkl` (las métricas están e
 python src/train.py
 ```
 
-Compara Árbol de Decisión, Random Forest, Regresión Logística y Perceptrón Multicapa, elige el de mejor F1 en la clase «Regar» y ajusta el umbral para detectar al menos el 95 % de los estados críticos. Resultado actual sobre el conjunto de prueba: **Random Forest**, exactitud 0,873, exhaustividad «Regar» 0,969 (23 falsos negativos de 747).
+Compara Árbol de Decisión, Random Forest, Regresión Logística y Perceptrón Multicapa, elige el de mejor F1 en la clase «Regar» y ajusta el umbral para detectar al menos el 95 % de los estados críticos. Los hiperparámetros se eligen con validación cruzada agrupada por día. Resultado actual sobre el conjunto de prueba: **Random Forest**, umbral 0,28, exactitud 0,861, exhaustividad «Regar» 0,972 (21 falsos negativos de 747).
+
+Los datos de `data/` son **sintéticos** (ver la hoja `Parametros` de cada Excel). `python src/evaluar.py` genera en `reports/` el aporte de los atributos, las métricas por invernadero, el ahorro estimado sobre todos los días de prueba y las figuras del informe.
 
 | Archivo | Qué hace |
 |---|---|
-| `src/preparacion.py` | Limpieza y atributos del modelo (media móvil de 24 h, cultivo, hora cíclica, DPV) |
-| `src/train.py` | Entrenamiento, selección del modelo y evaluación |
+| `src/preparacion.py` | Limpieza y atributos del modelo (media móvil de 24 h, cultivo, hora cíclica, DPV en kPa) |
+| `src/train.py` | Entrenamiento con validación cruzada, selección del modelo y evaluación |
+| `src/evaluar.py` | Métricas por invernadero, ahorro sobre los días de prueba y figuras |
 | `src/predict.py` | `predecir(df)` para la interfaz y `predecir_condicion(...)` para la consulta rápida |
 | `src/optimizacion.py` | Litros del cronograma tradicional frente a los del sistema |

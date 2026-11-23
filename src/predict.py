@@ -38,7 +38,7 @@ def cargar_modelo(ruta: str = str(RUTA_MODELO)) -> dict:
 
 
 def _clasificar(X: pd.DataFrame, index) -> pd.DataFrame:
-    """Aplica el modelo y el umbral a una matriz con las 10 columnas de FEATURES."""
+    """Aplica el modelo y el umbral a una matriz con las columnas de FEATURES."""
     art = cargar_modelo()
     prob = art["modelo"].predict_proba(X)[:, 1]
     regar = prob >= art["umbral"]

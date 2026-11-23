@@ -5,7 +5,13 @@ train.py y predict.py. No depende de Streamlit.
 
 Atributos del vector X (apartado 5.4 del informe):
     temperatura, humedad_ambiente, humedad_suelo, humedad_suelo_media24,
-    hora_sen, hora_cos, dia_semana, mes, indice_dpv, cultivo_cod
+    hora_sen, hora_cos, dpv_kpa, cultivo_cod
+
+No se usan el mes ni el día de la semana: cada invernadero cubre meses
+distintos, así que el mes funcionaba como identificador del invernadero, y el
+día de la semana no tiene sentido agronómico.
+
+Los datos son sintéticos (ver la hoja Parametros de cada Excel).
 """
 from __future__ import annotations
 
@@ -35,16 +41,18 @@ FEATURES = [
     "humedad_suelo_media24",
     "hora_sen",
     "hora_cos",
-    "dia_semana",
-    "mes",
-    "indice_dpv",
+    "dpv_kpa",
     "cultivo_cod",
 ]
 
-# El cultivo fija el umbral de humedad crítica: la lechuga (suelo arcilloso)
-# entra en estado crítico cerca del 43 % y el pepino (franco arenoso) cerca
-# del 28 %. Sin esta variable el modelo aprende un umbral promedio que no
-# sirve para ningún invernadero.
+# Columnas numéricas (se escalan) y categórica (one-hot en los modelos lineales).
+NUMERICAS = FEATURES[:-1]
+CATEGORICAS = ["cultivo_cod"]
+
+# El cultivo fija el umbral de humedad crítica (hoja Parametros de cada Excel):
+# lechuga sobre suelo arcilloso 37,4 % (39,4 % con alta demanda) y pepino sobre
+# franco arenoso 23,4 % (25,4 %). Sin esta variable el modelo aprende un umbral
+# promedio que no sirve para ningún invernadero.
 CULTIVOS = {"tomate": 1, "pimenton": 2, "lechuga": 3, "frutilla": 4, "pepino": 5}
 
 RANGOS = {COL_TEMP: (-10.0, 60.0), COL_HAMB: (0.0, 100.0), COL_HSUELO: (0.0, 100.0)}
@@ -125,8 +133,14 @@ def limpiar(df: pd.DataFrame, con_etiqueta: bool = True) -> tuple[pd.DataFrame, 
     return df, reporte
 
 
+def dpv_kpa(temperatura, humedad_ambiente):
+    """Déficit de presión de vapor en kPa: es(T) · (1 − HR/100), con es de Tetens (FAO-56)."""
+    es = 0.6108 * np.exp(17.27 * temperatura / (temperatura + 237.3))
+    return es * (1 - humedad_ambiente / 100)
+
+
 def derivar_atributos(df: pd.DataFrame, cultivo: str | None = None) -> pd.DataFrame:
-    """Agrega las 10 columnas de FEATURES sin alterar el orden de las filas."""
+    """Agrega las columnas de FEATURES sin alterar el orden de las filas."""
     df = df.copy()
     df["temperatura"] = df[COL_TEMP].astype(float)
     df["humedad_ambiente"] = df[COL_HAMB].astype(float)
@@ -135,11 +149,9 @@ def derivar_atributos(df: pd.DataFrame, cultivo: str | None = None) -> pd.DataFr
     fechas = (pd.to_datetime(df[COL_FECHA], errors="coerce")
               if COL_FECHA in df.columns else pd.Series(pd.NaT, index=df.index))
     hora = fechas.dt.hour.fillna(df.get("hora", 12)).astype(int)
-    df["dia_semana"] = fechas.dt.dayofweek.fillna(df.get("dia_semana", 0)).astype(int)
-    df["mes"] = fechas.dt.month.fillna(df.get("mes", 1)).astype(int)
     df["hora_sen"] = np.sin(2 * np.pi * hora / 24)
     df["hora_cos"] = np.cos(2 * np.pi * hora / 24)
-    df["indice_dpv"] = df["temperatura"] * (100 - df["humedad_ambiente"]) / 100
+    df["dpv_kpa"] = dpv_kpa(df["temperatura"], df["humedad_ambiente"])
 
     if COL_CULTIVO in df.columns:
         cod = df[COL_CULTIVO].map(normalizar).map(CULTIVOS)
