@@ -47,17 +47,19 @@ def consolidar_eventos(df: pd.DataFrame, regar: pd.Series, col_fecha: str | None
     regar = regar.astype(bool)
     if horas_entre <= 1:
         return regar.astype(int)
-    orden = (pd.to_datetime(df[col_fecha], errors="coerce").sort_values(kind="stable").index
-             if horas_de(df, col_fecha) is not None else df.index)
+    fechas = (pd.to_datetime(df[col_fecha], errors="coerce")
+              if horas_de(df, col_fecha) is not None else None)
+    orden = fechas.sort_values(kind="stable").index if fechas is not None else df.index
     eventos = pd.Series(0, index=df.index)
-    bloqueo = 0
+    ultimo_evento = None
     for i in orden:
-        if bloqueo > 0:
-            bloqueo -= 1
-            continue
-        if regar.loc[i]:
+        separado = True
+        if fechas is not None and ultimo_evento is not None:
+            separado = (fechas.loc[i] - ultimo_evento) >= pd.Timedelta(hours=horas_entre)
+        if regar.loc[i] and separado:
             eventos.loc[i] = 1
-            bloqueo = horas_entre - 1
+            if fechas is not None:
+                ultimo_evento = fechas.loc[i]
     return eventos
 
 

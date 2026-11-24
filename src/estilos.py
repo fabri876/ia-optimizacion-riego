@@ -68,16 +68,25 @@ section[data-testid="stSidebar"] { border-right: 1px solid var(--borde); }
 .veredicto-texto { margin-top: 4px; color: var(--ink); max-width: 82ch; line-height: 1.5; }
 
 /* ---------- Ficha de decisión (condición puntual) ---------- */
-.ficha { display: flex; gap: 28px; align-items: center; flex-wrap: wrap; background: #FFFFFF; border: 1px solid var(--borde); border-radius: 14px; padding: 20px 26px; margin: 10px 0; }
+.ficha { display: flex; gap: 28px; align-items: center; flex-wrap: wrap; background: #FFFFFF; border: 1px solid var(--borde); border-radius: 14px; padding: 20px 26px; margin: 10px 0 6px; }
+.ficha-resultado { min-width: 165px; }
+.ficha-etiqueta { font-size: .78rem; color: var(--suave); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .ficha-decision { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 2.8rem; letter-spacing: -0.03em; line-height: 1; }
 .ficha-estado { font-size: .95rem; font-weight: 600; margin-top: 6px; }
 .ficha-prob { flex: 1; min-width: 260px; }
-.ficha-prob-titulo { font-size: .9rem; font-weight: 600; color: var(--ink); }
+.ficha-metricas { display: flex; gap: 28px; align-items: baseline; }
+.ficha-metricas div { display: flex; gap: 7px; align-items: baseline; }
+.ficha-metricas span { color: var(--suave); font-size: .83rem; }
+.ficha-metricas b { color: var(--ink); font-size: 1.2rem; }
 .barra-prob { position: relative; height: 14px; background: #E3ECE6; border-radius: 7px; margin: 12px 0 4px; }
 .barra-prob-relleno { height: 100%; border-radius: 7px; }
 .barra-prob-marca { position: absolute; top: -5px; width: 2px; height: 24px; background: var(--ink); }
 .barra-prob-escala { display: flex; justify-content: space-between; font-size: .74rem; color: var(--suave); }
 .ficha-nota { font-size: .84rem; color: var(--suave); margin-top: 6px; }
+.leyenda-colores { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; padding: 9px 14px; border: 1px solid var(--borde); border-radius: 8px; color: var(--suave); font-size: .82rem; margin-bottom: 12px; }
+.leyenda-colores b { color: var(--ink); margin-right: 4px; }
+.leyenda-punto { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; }
+.leyenda-punto.critico { background: var(--alerta); }.leyenda-punto.optimo { background: var(--hoja); }.leyenda-punto.saturado { background: #7A5AC8; }.leyenda-punto.riego { background: var(--agua); }
 
 /* ---------- Tablas de datos ---------- */
 .tabla-scroll { overflow-x: auto; margin: 6px 0 10px; }

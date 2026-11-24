@@ -9,6 +9,9 @@ COLORES_ESTADO = {"Óptimo": "#2F8F5B", "Crítico": "#D13F3F", "Saturado": "#7A5
 COLORES_DECISION = {"Regar": "#1B73C9", "No Regar": "#9DB8A6"}
 COLORES_CONSUMO = {"Riego tradicional": "#C5D3C9", "Riego optimizado": "#1B73C9"}
 
+# Convención visible y estable en toda la aplicación: rojo=crítico,
+# verde=óptimo, violeta=saturado, azul=decisión/evento de riego.
+
 
 def fmt(n, d=0):
     """Número con formato español: 1.234,5"""
@@ -97,14 +100,27 @@ def ficha_decision(decision, estado, probabilidad, umbral):
     p, u = max(0, min(100, probabilidad * 100)), max(0, min(100, umbral * 100))
     st.markdown(
         f'<div class="ficha">'
-        f'<div><div class="ficha-decision" style="color:{color}">{_e(decision)}</div>'
+        f'<div class="ficha-resultado"><div class="ficha-etiqueta">Decisión del modelo</div>'
+        f'<div class="ficha-decision" style="color:{color}">{_e(decision)}</div>'
         f'<div class="ficha-estado" style="color:{color_estado}">Estado hídrico: {_e(estado)}</div></div>'
         f'<div class="ficha-prob">'
-        f'<div class="ficha-prob-titulo">Probabilidad de que el cultivo necesite riego: {fmt(p, 0)} %</div>'
+        f'<div class="ficha-metricas"><div><span>Probabilidad de riego</span><b>{fmt(p, 0)} %</b></div>'
+        f'<div><span>Umbral de acción</span><b>{fmt(u, 0)} %</b></div></div>'
         f'<div class="barra-prob"><div class="barra-prob-relleno" style="width:{p:.1f}%;background:{color}"></div>'
         f'<div class="barra-prob-marca" style="left:{u:.1f}%"></div></div>'
-        f'<div class="barra-prob-escala"><span>0 %</span><span>el modelo riega desde {fmt(u, 0)} %</span><span>100 %</span></div>'
+        f'<div class="barra-prob-escala"><span>0 %</span><span>La marca negra es el umbral: desde {fmt(u, 0)} % se recomienda regar</span><span>100 %</span></div>'
         f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def leyenda_colores():
+    st.markdown(
+        '<div class="leyenda-colores"><b>Cómo leer los colores</b>'
+        '<span><i class="leyenda-punto critico"></i>Rojo: crítico</span>'
+        '<span><i class="leyenda-punto optimo"></i>Verde: óptimo</span>'
+        '<span><i class="leyenda-punto saturado"></i>Violeta: saturado</span>'
+        '<span><i class="leyenda-punto riego"></i>Azul: riego o decisión</span></div>',
         unsafe_allow_html=True,
     )
 

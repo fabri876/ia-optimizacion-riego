@@ -12,7 +12,7 @@ from analisis import (
     regar_por_rango, resumen_general, resumen_zonas, serie_tiempo, tabla_estados, umbral_aproximado,
 )
 from componentes import (
-    cifras, ficha_decision, fmt, grafico_consumo, grafico_cultivos, grafico_curva,
+    cifras, ficha_decision, fmt, grafico_consumo, grafico_cultivos, grafico_curva, leyenda_colores,
     grafico_decisiones_zona, grafico_horas, grafico_humedad_zona, grafico_meses,
     grafico_regar_rango, hero, mostrar, nota, parcela,
     pasos, pie_grafico, tabla_comparativa, tabla_estados_html, tanque, titulo_seccion,
@@ -120,6 +120,8 @@ def barra_lateral():
         if not horario:
             st.warning("Elige al menos una hora de riego. Mientras tanto uso 6:00, 12:00 y 18:00.")
         horario = tuple(sorted(horario)) or (6, 12, 18)
+        st.caption("Unidad del plan: cada hora seleccionada aplica el volumen completo de litros por riego; "
+                   "no se reparte un volumen diario entre las horas.")
         st.caption(f"Tu cronograma tiene {len(horario)} {'riego' if len(horario) == 1 else 'riegos'} al día.")
         for a, b in conflictos_cronograma(horario, horas_entre):
             st.warning(f"Los riegos de las {a:02d}:00 y las {b:02d}:00 están a menos de {horas_entre} h de distancia.")
@@ -136,9 +138,9 @@ def barra_lateral():
 # ------------------------------------------------------------ Pestaña 1: Simulador
 def seccion_condicion(df, res, ent, info, clave):
     titulo_seccion(
-        "¿Hay que regar ahora?",
-        "Ingresa una lectura con los datos de fecha y hora, temperatura (°C), humedad ambiente (%), "
-        "humedad del suelo (%) y cultivo para ver si el modelo recomienda regar. "
+        "A. Condiciones actuales",
+        "Esta es una predicción nueva del Random Forest: responde si conviene regar, no predice cosecha ni litros. "
+        "Ingresa fecha y hora, temperatura (°C), humedad ambiente (%), humedad del suelo (%) y cultivo. "
         "Los valores iniciales corresponden a la última lectura del historial.",
     )
     cultivos = sorted(df["Cultivo"].dropna().astype(str).unique()) if "Cultivo" in df.columns else CULTIVOS
@@ -186,9 +188,18 @@ def seccion_condicion(df, res, ent, info, clave):
     if not p or p["clave"] != clave:
         return
     r = p["r"]
+    titulo_seccion(
+        "B. Respuesta de la IA",
+        "Esta decisión, el estado hídrico y la probabilidad son la salida del modelo Random Forest.",
+    )
     ficha_decision(r["decision"], r["estado"], r["probabilidad"], r["umbral"])
+    leyenda_colores()
+    titulo_seccion(
+        "C. Costo del evento configurado",
+        "Este importe se calcula con los litros y la tarifa de la barra lateral; no es una predicción del modelo.",
+    )
     cifras([("Costo de regar ahora", f"Bs {fmt(ent['litros'] / 1000 * ent['costo'], 2)}",
-             f"{fmt(ent['litros'])} L a Bs {fmt(ent['costo'], 2)} por m³")])
+             f"Cálculo: {fmt(ent['litros'])} L por evento a Bs {fmt(ent['costo'], 2)} por m³")])
     ctx = contexto_humedad(res, p["hs"])
     if ctx:
         n, pct = ctx
@@ -202,8 +213,8 @@ def seccion_condicion(df, res, ent, info, clave):
 
     curva, umbral_pct, limite, _ = curva_cacheada(p["t"], p["ha"], p["hora"], p["cultivo"], p.get("fecha_hora"))
     titulo_seccion(
-        "¿Y con otra humedad del suelo?",
-        "Dejo fijas la temperatura, la humedad del aire, la hora y el cultivo que ingresaste, y muevo solo la "
+        "D. ¿Qué pasa si cambia la humedad del suelo?",
+        "Dejo fijas la temperatura, la humedad del aire, la fecha, la hora y el cultivo que ingresaste, y muevo solo la "
         "humedad del suelo para ver dónde cambia la respuesta del modelo.",
     )
     mostrar(grafico_curva(curva, umbral_pct, p["hs"]))
@@ -221,7 +232,7 @@ def seccion_condicion(df, res, ent, info, clave):
 
 def seccion_plan(res, ent):
     titulo_seccion(
-        "Plan del mes: ¿alcanza tu cronograma?",
+        "E. Plan del mes: ¿alcanza tu cronograma?",
         "Elige un mes e invernadero. El sistema revisa las lecturas históricas de ese mes, estima el "
         "promedio diario de riegos según el modelo y lo compara con tu cronograma actual.",
     )
@@ -691,7 +702,11 @@ general = resumen_general(res, zonas, ent["litros"], ent["costo"])
 titulo = f"{info['cultivo']} en {info['localidad']}" if info["cultivo"] else info["titulo"]
 detalle_suelo = f"Suelo {info['suelo'].lower()}. " if info["suelo"] else ""
 per = periodo(res)
-etiquetas = [f"{fmt(len(df))} lecturas", f"{n_zonas_real} {'invernadero' if n_zonas_real == 1 else 'invernaderos'}"]
+etiquetas = [
+    f"{fmt(len(crudo))} lecturas cargadas",
+    f"{fmt(len(df))} lecturas válidas",
+    f"{n_zonas_real} {'invernadero' if n_zonas_real == 1 else 'invernaderos'}",
+]
 if per:
     etiquetas.append(f"{fecha_corta(per[0])} a {fecha_corta(per[1])}")
 hero(
@@ -704,15 +719,13 @@ hero(
 
 inter = intervalo_lecturas(res)
 pasos([
-    ("Datos históricos",
-     f"{fmt(len(df))} lecturas de temperatura, humedad del aire y humedad del suelo"
-     + (f", una cada {fmt(inter, 1)} h aproximadamente." if inter else ".")),
-    ("El modelo aprende",
-     "Un modelo de clasificación aprende en qué condiciones el cultivo necesitaba riego. "
-     "Responde Regar o No Regar para cada lectura."),
-    ("Tú consultas",
-     "Escribes una condición o tu cronograma de riego y el modelo responde si regar, "
-     "cuántos riegos al día hacen falta, cuánta agua se gasta y cuánto cuesta."),
+    ("Consulta con IA",
+     "Ingresa temperatura, humedades, hora y cultivo para obtener una decisión nueva: Regar o No Regar."),
+    ("Evidencia histórica",
+     f"Revisa cómo respondió el modelo sobre {fmt(len(df))} lecturas válidas"
+     + (f", tomadas cada {fmt(inter, 1)} h aproximadamente." if inter else ".")),
+    ("Plan optimizado",
+     "Compara tu cronograma con la demanda detectada y consulta riegos, agua y costo del período."),
 ])
 
 if modo == "Modo simulado":
@@ -721,7 +734,13 @@ if modo == "Modo simulado":
         f"Motivo técnico: {resultado['motivo']}"
     )
 
-t1, t2, t3, t4, t5 = st.tabs(["Simulador", "Qué pasó (historial)", "Ahorro con el modelo", "Comparar cultivos", "Datos"])
+t1, t2, t3, t4, t5 = st.tabs([
+    "1. Consulta con IA",
+    "2. Evidencia histórica",
+    "3. Plan optimizado y costo",
+    "4. Comparar cultivos",
+    "5. Datos y métricas",
+])
 with t1:
     tab_simulador(df, res, ent, info, clave)
 with t2:
