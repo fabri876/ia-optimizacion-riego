@@ -4,6 +4,10 @@ __pycache__/
 venv/
 .venv/
 
+# Compilación del ejecutable (PyInstaller)
+build/
+dist/
+
 # Excel abierto
 ~$*
 

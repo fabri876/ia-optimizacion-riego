@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_data_files, copy_metadata
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 # 1. Agregamos tus carpetas
 datas = [('src', 'src'), ('data', 'data'), ('model', 'model'), ('.streamlit', '.streamlit')]
@@ -8,17 +8,30 @@ datas = [('src', 'src'), ('data', 'data'), ('model', 'model'), ('.streamlit', '.
 datas += collect_data_files('streamlit')
 datas += copy_metadata('streamlit')
 
+# 3. Librerías que PyInstaller no puede descubrir solo.
+# La carpeta src/ viaja como dato, no como código analizado, así que PyInstaller
+# nunca lee sus imports. Si no se listan aquí, el .exe arranca pero predict.py
+# falla con ModuleNotFoundError y la app cae al modo de reglas de ejemplo.
+ocultos = [
+    'streamlit',
+    'streamlit.runtime.scriptrunner.magic_funcs',
+    'pandas',
+    'openpyxl',
+    'joblib',        # carga model/modelo_riego.pkl (predict.py)
+    'numpy',
+    'altair',        # gráficos de componentes.py
+]
+# scikit-learn: el .pkl guarda objetos de sklearn, así que el paquete entero
+# (y scipy, del que depende) tiene que estar dentro del ejecutable.
+ocultos += collect_submodules('sklearn')
+ocultos += collect_submodules('scipy')
+
 a = Analysis(
     ['lanzador.py'],
     pathex=[],
     binaries=[],
     datas=datas,
-    hiddenimports=[
-        'streamlit',
-        'streamlit.runtime.scriptrunner.magic_funcs',
-        'pandas',
-        'openpyxl'
-    ],
+    hiddenimports=ocultos,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
