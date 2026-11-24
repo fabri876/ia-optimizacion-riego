@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Excel abierto
+~$*
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini
