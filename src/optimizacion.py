@@ -51,14 +51,27 @@ def consolidar_eventos(df: pd.DataFrame, regar: pd.Series, col_fecha: str | None
               if horas_de(df, col_fecha) is not None else None)
     orden = fechas.sort_values(kind="stable").index if fechas is not None else df.index
     eventos = pd.Series(0, index=df.index)
-    ultimo_evento = None
+    ultimo_evento = None  # marca temporal del último riego abierto
+    bloqueo = 0           # lecturas que faltan por saltar cuando no hay fechas
     for i in orden:
-        separado = True
-        if fechas is not None and ultimo_evento is not None:
-            separado = (fechas.loc[i] - ultimo_evento) >= pd.Timedelta(hours=horas_entre)
+        if fechas is None:
+            # Sin fecha no se puede medir el tiempo: se asume una lectura por hora
+            # y se saltan las horas_entre - 1 lecturas siguientes a cada riego.
+            if bloqueo > 0:
+                bloqueo -= 1
+                continue
+            separado = True
+        else:
+            fecha = fechas.loc[i]
+            if pd.isna(fecha):
+                continue  # sin hora válida no se puede ubicar el riego en el tiempo
+            separado = (ultimo_evento is None
+                        or (fecha - ultimo_evento) >= pd.Timedelta(hours=horas_entre))
         if regar.loc[i] and separado:
             eventos.loc[i] = 1
-            if fechas is not None:
+            if fechas is None:
+                bloqueo = horas_entre - 1
+            else:
                 ultimo_evento = fechas.loc[i]
     return eventos
 
